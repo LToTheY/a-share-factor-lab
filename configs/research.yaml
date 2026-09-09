@@ -1,0 +1,58 @@
+project:
+  random_seed: 42
+  output_dir: reports/generated/daily_factor_lab
+
+data:
+  source: baostock
+  initial_calendar_days: 800
+  raw_dir: data/raw/baostock_daily
+  processed_file: data/processed/baostock_daily.parquet
+  max_stale_trading_days: 1
+  required_latest_coverage: 1.0
+
+universe:
+  preferred_index: "000905.SH"
+  min_listed_days: 120
+  exclude_st: true
+  exclude_suspended: true
+  min_amount: 10000000
+  require_known_status: true
+
+factors:
+  forward_periods: 5
+  winsor_n_mad: 5.0
+  neutralize_size: false
+  neutralize_industry: false
+  groups: 5
+  definitions:
+    - {name: momentum_20_5, direction: 1.0}
+    - {name: momentum_60_5, direction: 1.0}
+    - {name: momentum_120_20, direction: 1.0}
+    - {name: reversal_5, direction: 1.0}
+    - {name: reversal_20, direction: 1.0}
+    - {name: volatility_20, direction: -1.0}
+    - {name: volatility_60, direction: -1.0}
+    - {name: amihud_20, direction: -1.0}
+    - {name: turnover_mean_20, direction: -1.0}
+    - {name: amount_momentum_20, direction: 1.0}
+    - {name: price_volume_corr_20, direction: 1.0}
+
+portfolio:
+  # 每日仍会计算信号；W-FRI只决定是否生成调仓单。改为D即可每日检查调仓。
+  rebalance_frequency: W-FRI
+  top_n: 20
+  exit_rank: 30
+  max_weight: 0.05
+
+backtest:
+  initial_cash: 1000000
+  commission_rate: 0.0003
+  stamp_duty_rate: 0.0005
+  transfer_fee_rate: 0.00001
+  slippage_bps: 5.0
+  minimum_commission: 5.0
+  lot_size: 100
+
+paper_account:
+  state_file: data/state/paper_portfolio.json
+  next_orders_file: reports/generated/daily_factor_lab/next_day_orders.csv
