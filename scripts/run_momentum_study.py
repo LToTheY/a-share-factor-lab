@@ -35,10 +35,10 @@ def main() -> None:
     else:
         market = read_table(ROOT / args.data)
         market.attrs["provider"] = "baostock"
-        market.attrs["universe"] = "current_zz500_rolling_window"
+        market.attrs["universe"] = "historical_zz500_weekly_snapshots"
         market.attrs["research_warning"] = (
-            "Initial rolling history uses the current CSI 500 snapshot. "
-            "Daily snapshots become point-in-time only from the first local run onward."
+            "Historical CSI 500 membership is sampled weekly; dates between snapshots "
+            "use the latest membership snapshot known at that date."
         )
         default_output = ROOT / "reports" / "generated" / "momentum_real_daily"
     output = Path(args.output) if args.output else default_output

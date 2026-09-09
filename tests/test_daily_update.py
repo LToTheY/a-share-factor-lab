@@ -7,17 +7,39 @@ import pandas as pd
 from quant_lab.data.daily_update import (
     consolidate_incremental_panel,
     incremental_zz500_update,
+    latest_completed_session,
 )
+
+
+class DailySessionTest(unittest.TestCase):
+    def test_waits_for_vendor_after_close(self) -> None:
+        calendar = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(
+                    ["2026-09-08", "2026-09-09", "2026-09-10"]
+                ),
+                "is_trading_day": [True, True, True],
+            }
+        )
+        before_ready = latest_completed_session(
+            calendar, pd.Timestamp("2026-09-10 09:00:00")
+        )
+        after_ready = latest_completed_session(
+            calendar, pd.Timestamp("2026-09-10 19:00:00")
+        )
+        self.assertEqual(before_ready, pd.Timestamp("2026-09-09"))
+        self.assertEqual(after_ready, pd.Timestamp("2026-09-10"))
 
 
 class FakeDownloader:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str, str]] = []
 
-    def zz500_snapshot(self) -> pd.DataFrame:
+    def zz500_snapshot(self, trade_date: str | None = None) -> pd.DataFrame:
+        effective = trade_date or "2025-01-20"
         return pd.DataFrame(
             {
-                "trade_date": pd.to_datetime(["2025-01-20", "2025-01-20"]),
+                "trade_date": pd.to_datetime([effective, effective]),
                 "symbol": ["600000.SH", "000001.SZ"],
                 "weight": [None, None],
             }
@@ -86,6 +108,25 @@ class DailyUpdateTest(unittest.TestCase):
             self.assertTrue((panel["close"] == 10.0).all())
             self.assertTrue((panel["adj_close"] == 20.0).all())
             self.assertTrue(panel["in_index"].all())
+
+    def test_existing_partitions_can_backfill_older_history(self) -> None:
+        downloader = FakeDownloader()
+        with tempfile.TemporaryDirectory() as temporary:
+            incremental_zz500_update(
+                downloader, temporary, end_date="2025-01-10", initial_calendar_days=10
+            )
+            incremental_zz500_update(
+                downloader,
+                temporary,
+                end_date="2025-01-13",
+                history_start_date="2024-12-01",
+                membership_frequency="W-FRI",
+            )
+            panel = consolidate_incremental_panel(temporary)
+            self.assertEqual(panel["trade_date"].min(), pd.Timestamp("2024-12-02"))
+            self.assertEqual(panel["trade_date"].max(), pd.Timestamp("2025-01-13"))
+            manifest = pd.read_json(Path(temporary) / "update_manifest.json", typ="series")
+            self.assertEqual(manifest["history_start_date"], "2024-12-01")
 
 
 if __name__ == "__main__":

@@ -18,11 +18,13 @@ from quant_lab.data.daily_update import (
     consolidate_incremental_panel,
     incremental_zz500_update,
 )
+from quant_lab.data.missing import classify_market_rows
 from quant_lab.data.panel import fill_explicit_suspensions
 from quant_lab.data.schema import validate_daily_frame
 from quant_lab.data.storage import write_table
 from quant_lab.portfolio.paper import build_next_day_orders, load_or_create_paper_state
 from quant_lab.research.factor_suite import run_factor_suite
+from quant_lab.research.live_ledger import record_live_snapshot
 from quant_lab.research.settings import load_research_settings
 
 
@@ -31,6 +33,11 @@ def main() -> None:
     parser.add_argument("--config", default="configs/research.yaml")
     parser.add_argument("--end", default=None, help="YYYY-MM-DD; default is today")
     parser.add_argument("--initial-days", type=int, default=None)
+    parser.add_argument(
+        "--history-start",
+        default=None,
+        help="Explicit history start; defaults to config (2015-01-01)",
+    )
     args = parser.parse_args()
 
     config_path = ROOT / args.config
@@ -43,10 +50,13 @@ def main() -> None:
             raw_dir,
             end_date=args.end,
             initial_calendar_days=initial_days,
+            history_start_date=args.history_start or settings.history_start_date,
+            membership_frequency=settings.membership_frequency,
         )
+    expected_cache_symbols = manifest.get("historical_symbols", manifest["symbols"])
     complete_cache = (
-        manifest["cached_adjusted_symbols"] == manifest["symbols"]
-        and manifest["cached_raw_symbols"] == manifest["symbols"]
+        manifest["cached_adjusted_symbols"] == expected_cache_symbols
+        and manifest["cached_raw_symbols"] == expected_cache_symbols
     )
     if not complete_cache or manifest["complete_through"] is None:
         raise SystemExit(
@@ -69,6 +79,7 @@ def main() -> None:
     market = fill_explicit_suspensions(
         consolidate_incremental_panel(raw_dir, end_date=manifest["complete_through"])
     )
+    market = classify_market_rows(market)
     market.attrs["provider"] = "baostock"
     market.attrs["universe"] = "zz500_local_point_in_time_snapshots"
     market.attrs["research_warning"] = manifest["survivorship_warning"]
@@ -121,6 +132,13 @@ def main() -> None:
     orders_path = ROOT / settings.next_orders_file
     orders_path.parent.mkdir(parents=True, exist_ok=True)
     orders.to_csv(orders_path, index=False, encoding="utf-8-sig")
+    live_snapshot = record_live_snapshot(
+        latest,
+        orders,
+        config_path,
+        ROOT / "data" / "state" / "live_signals",
+        settings.validation.get("live_start_date"),
+    )
     (output / "effective_config.yaml").write_text(
         config_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
@@ -129,6 +147,7 @@ def main() -> None:
         "audit_passed": True,
         "research": summary,
         "order_status": str(orders.iloc[0]["status"]),
+        "live_snapshot": live_snapshot,
         "paper_state_file": settings.paper_state_file,
     }
     (output / "run_status.json").write_text(

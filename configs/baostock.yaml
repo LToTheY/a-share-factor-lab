@@ -2,10 +2,13 @@ data:
   source: baostock
   update_mode: incremental
   end_date: null  # null表示每次运行到当天/数据源最新可用交易日
+  history_start_date: "2015-01-01"
+  research_start_date: "2016-01-01"
+  membership_frequency: "W-FRI"
   initial_calendar_days: 800
   frequency: d
   adjustflag: "1"  # 后复权；适合稳定追加，不会每日整体重写缓存
-  universe: current_zz500
+  universe: historical_zz500
   raw_dir: data/raw/baostock_daily
   processed_file: data/processed/baostock_daily.parquet
 
@@ -15,5 +18,5 @@ universe:
   exclude_suspended: true
   min_amount: 10000000
   require_known_status: true
-  # 首次滚动窗口使用当前成分回填；逐日快照从首次运行起积累。
-  require_index_membership: false
+  # 每周保存历史时点中证500成分；周内沿用最近一次已知名单。
+  require_index_membership: true

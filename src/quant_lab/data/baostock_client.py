@@ -35,9 +35,25 @@ def _round_price(value: float) -> float:
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def price_limit_ratio(symbol: str, trade_date: pd.Timestamp, is_st: bool) -> float:
+def price_limit_ratio(
+    symbol: str,
+    trade_date: pd.Timestamp,
+    is_st: bool,
+    listing_age_sessions: int | None = None,
+) -> float | None:
     """Approximate exchange price-limit rules for Shanghai/Shenzhen A shares."""
     number = symbol.split(".")[0]
+    newly_listed = listing_age_sessions is not None and listing_age_sessions < 5
+    no_limit_new_listing = newly_listed and (
+        number.startswith("688")
+        or (number.startswith("300") and trade_date >= pd.Timestamp("2020-08-24"))
+        or (
+            number.startswith(("60", "00"))
+            and trade_date >= pd.Timestamp("2023-04-10")
+        )
+    )
+    if no_limit_new_listing:
+        return None
     if is_st:
         return 0.05
     if number.startswith("688"):
@@ -57,25 +73,36 @@ def derive_open_limit_flags(
     the applicable limit ratio instead.
     """
     result = frame.copy()
+    listing_ages = result.get(
+        "listing_age_sessions", pd.Series([None] * len(result), index=result.index)
+    )
     ratios = [
-        price_limit_ratio(symbol, date, bool(is_st))
-        for symbol, date, is_st in zip(
-            result["symbol"], result["trade_date"], result["is_st"]
+        price_limit_ratio(symbol, date, bool(is_st), age)
+        for symbol, date, is_st, age in zip(
+            result["symbol"],
+            result["trade_date"],
+            result["is_st"],
+            listing_ages,
         )
     ]
     upper = [
-        _round_price(preclose * (1 + ratio)) if pd.notna(preclose) else np.nan
+        _round_price(preclose * (1 + ratio))
+        if pd.notna(preclose) and ratio is not None
+        else np.nan
         for preclose, ratio in zip(result["preclose"], ratios)
     ]
     lower = [
-        _round_price(preclose * (1 - ratio)) if pd.notna(preclose) else np.nan
+        _round_price(preclose * (1 - ratio))
+        if pd.notna(preclose) and ratio is not None
+        else np.nan
         for preclose, ratio in zip(result["preclose"], ratios)
     ]
     result["up_limit"] = upper
     result["down_limit"] = lower
+    result["is_no_limit_session"] = pd.isna(ratios)
     if adjusted_prices:
         open_return = result["open"].div(result["preclose"]).sub(1)
-        ratio_series = pd.Series(ratios, index=result.index)
+        ratio_series = pd.Series(ratios, index=result.index, dtype=float)
         # Exchange tick rounding can move the observed raw return slightly away
         # from 5/10/20%; the adjustment itself preserves that return ratio.
         return_tolerance = 0.003

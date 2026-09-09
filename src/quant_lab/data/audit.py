@@ -90,6 +90,19 @@ def audit_daily_data(
                 "成交量/额为负",
             )
         )
+    active = ~work.get("is_suspended", False)
+    active_missing = active & work[
+        ["open", "high", "low", "close", "volume", "amount"]
+    ].isna().any(axis=1)
+    if active_missing.any():
+        issues.append(
+            AuditIssue(
+                "ERROR",
+                "MISSING_ACTIVE_MARKET_DATA",
+                int(active_missing.sum()),
+                "正常交易记录缺少OHLC、成交量或成交额，禁止插值",
+            )
+        )
 
     if frame.attrs.get("provider") == "baostock":
         dual_price_columns = {"open", "close", "adj_open", "adj_close"}

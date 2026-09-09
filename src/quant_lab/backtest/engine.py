@@ -15,6 +15,8 @@ class BacktestConfig:
     initial_cash: float = 1_000_000.0
     commission_rate: float = 0.0003
     stamp_duty_rate: float = 0.0005
+    historical_stamp_duty_rate: float = 0.001
+    stamp_duty_change_date: str = "2023-08-28"
     transfer_fee_rate: float = 0.00001
     slippage_bps: float = 5.0
     minimum_commission: float = 5.0
@@ -31,6 +33,14 @@ class BacktestResult:
 def _commission(gross: float, config: BacktestConfig) -> float:
     commission = max(config.minimum_commission, gross * config.commission_rate)
     return commission + gross * config.transfer_fee_rate
+
+
+def _stamp_duty_rate(trade_date: pd.Timestamp, config: BacktestConfig) -> float:
+    """Return the sell-side tax rate that was observable on the trade date."""
+    change_date = pd.Timestamp(config.stamp_duty_change_date)
+    if pd.Timestamp(trade_date) < change_date:
+        return config.historical_stamp_duty_rate
+    return config.stamp_duty_rate
 
 
 def _execution_schedule(
@@ -103,7 +113,8 @@ def run_backtest(
                 price = raw_price * (1 - slippage)
                 gross = quantity * price
                 fee = _commission(gross, config)
-                tax = gross * config.stamp_duty_rate
+                tax_rate = _stamp_duty_rate(trade_date, config)
+                tax = gross * tax_rate
                 cash += gross - fee - tax
                 shares[symbol] = current_shares - quantity
                 trade_rows.append(
@@ -117,6 +128,7 @@ def run_backtest(
                         "gross": gross,
                         "fee": fee,
                         "tax": tax,
+                        "tax_rate": tax_rate,
                     }
                 )
 
@@ -163,6 +175,7 @@ def run_backtest(
                         "gross": gross,
                         "fee": fee,
                         "tax": 0.0,
+                        "tax_rate": 0.0,
                     }
                 )
 
@@ -204,6 +217,7 @@ def run_backtest(
         "gross",
         "fee",
         "tax",
+        "tax_rate",
     ]
     position_columns = ["trade_date", "symbol", "shares", "close", "market_value"]
     return BacktestResult(

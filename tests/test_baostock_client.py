@@ -44,6 +44,24 @@ class BaoStockAdapterTest(unittest.TestCase):
         self.assertTrue(bool(result.loc[1, "is_limit_up"]))
         self.assertTrue(bool(result["limit_status_known"].all()))
 
+    def test_first_five_sessions_can_be_unlimited_under_new_rules(self) -> None:
+        self.assertIsNone(
+            price_limit_ratio(
+                "688001.SH", pd.Timestamp("2019-07-22"), False, listing_age_sessions=0
+            )
+        )
+        self.assertIsNone(
+            price_limit_ratio(
+                "300001.SZ", pd.Timestamp("2020-08-24"), False, listing_age_sessions=4
+            )
+        )
+        self.assertEqual(
+            price_limit_ratio(
+                "300001.SZ", pd.Timestamp("2020-08-24"), False, listing_age_sessions=5
+            ),
+            0.20,
+        )
+
     def test_adjusted_price_limit_uses_return_ratio(self) -> None:
         frame = pd.DataFrame(
             {

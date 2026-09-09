@@ -51,6 +51,64 @@ class BacktestTest(unittest.TestCase):
         result = run_backtest(market, weights)
         self.assertTrue(result.trades.empty)
 
+    def test_stamp_duty_uses_historical_schedule(self) -> None:
+        dates = pd.to_datetime(
+            ["2023-08-24", "2023-08-25", "2023-08-28", "2023-08-29"]
+        )
+        market = pd.DataFrame(
+            {
+                "trade_date": dates,
+                "symbol": ["A"] * 4,
+                "open": [10.0] * 4,
+                "close": [10.0] * 4,
+            }
+        )
+        weights = pd.DataFrame(
+            {
+                "trade_date": [dates[0], dates[1], dates[2]],
+                "symbol": ["A", "A", "A"],
+                "target_weight": [1.0, 0.0, 1.0],
+            }
+        )
+        config = BacktestConfig(
+            commission_rate=0,
+            transfer_fee_rate=0,
+            minimum_commission=0,
+            slippage_bps=0,
+        )
+        result = run_backtest(market, weights, config)
+        sell = result.trades[result.trades["side"] == "SELL"].iloc[0]
+        self.assertEqual(sell["trade_date"], pd.Timestamp("2023-08-28"))
+        self.assertEqual(sell["tax_rate"], 0.0005)
+
+    def test_stamp_duty_before_cut_uses_old_rate(self) -> None:
+        dates = pd.to_datetime(["2023-08-23", "2023-08-24", "2023-08-25"])
+        market = pd.DataFrame(
+            {
+                "trade_date": dates,
+                "symbol": ["A"] * 3,
+                "open": [10.0] * 3,
+                "close": [10.0] * 3,
+            }
+        )
+        weights = pd.DataFrame(
+            {
+                "trade_date": dates[:2],
+                "symbol": ["A", "A"],
+                "target_weight": [1.0, 0.0],
+            }
+        )
+        config = BacktestConfig(
+            commission_rate=0,
+            transfer_fee_rate=0,
+            minimum_commission=0,
+            slippage_bps=0,
+        )
+        result = run_backtest(market, weights, config)
+        sell = result.trades[result.trades["side"] == "SELL"].iloc[0]
+        self.assertEqual(sell["trade_date"], pd.Timestamp("2023-08-25"))
+        self.assertEqual(sell["tax_rate"], 0.001)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,10 +17,12 @@ from quant_lab.evaluation.diagnostics import (
     summarize_ic,
 )
 from quant_lab.evaluation.preprocess import preprocess_factor, zscore
+from quant_lab.evaluation.stability import factor_stability_table
 from quant_lab.factors.library import compute_factor
 from quant_lab.portfolio.weights import buffered_top_n_weights
 from quant_lab.reporting import markdown_table, write_line_svg
 from quant_lab.research.settings import ResearchSettings
+from quant_lab.research.walk_forward import run_walk_forward
 from quant_lab.universe.filters import UniverseConfig, apply_universe
 
 
@@ -67,6 +69,12 @@ def run_factor_suite(
     score_table = keys.copy()
     summaries = []
     score_names = []
+    coverage_rows = []
+    research_start = (
+        pd.Timestamp(settings.research_start_date)
+        if settings.research_start_date
+        else pd.Timestamp(prepared["trade_date"].min())
+    )
 
     exposure_columns = ["trade_date", "symbol", "in_universe"]
     for column in ["market_cap", "industry"]:
@@ -87,20 +95,50 @@ def run_factor_suite(
             neutralize_size=settings.neutralize_size,
             neutralize_industry=settings.neutralize_industry,
         ).merge(labels, on=["trade_date", "symbol"], how="left", validate="one_to_one")
+        daily_coverage = factor.groupby("trade_date").apply(
+            lambda group: float(
+                group.loc[group["in_universe"], "factor_processed"].notna().mean()
+            )
+            if group["in_universe"].any()
+            else float("nan"),
+            include_groups=False,
+        )
+        coverage_rows.extend(
+            {
+                "trade_date": date,
+                "factor": definition.name,
+                "coverage": coverage,
+                "meets_threshold": bool(
+                    pd.notna(coverage)
+                    and coverage >= settings.minimum_factor_coverage
+                ),
+            }
+            for date, coverage in daily_coverage.items()
+        )
+        low_coverage_dates = daily_coverage[
+            daily_coverage < settings.minimum_factor_coverage
+        ].index
+        factor.loc[
+            factor["trade_date"].isin(low_coverage_dates), "factor_processed"
+        ] = pd.NA
         score_name = definition.name
         score_names.append(score_name)
         score_table[score_name] = (
             factor["factor_processed"] * definition.direction
         ).to_numpy()
+        evaluation_factor = factor[factor["trade_date"] >= research_start]
         ic = information_coefficient(
-            factor,
+            evaluation_factor,
             "factor_processed",
             label_col,
             min_observations=10,
         )
         ic_summary = summarize_ic(ic, periods_per_year=252 / settings.forward_periods)
         groups = quantile_returns(
-            factor, "factor_processed", label_col, groups=settings.groups
+            evaluation_factor,
+            "factor_processed",
+            label_col,
+            groups=settings.groups,
         )
         group_means = groups.groupby("quantile")[label_col].mean()
         spread = (
@@ -123,12 +161,16 @@ def run_factor_suite(
         )
 
     valid_count = score_table[score_names].notna().sum(axis=1)
-    minimum_factors = max(1, len(score_names) // 2)
+    minimum_factors = settings.minimum_valid_factors
+    score_table["valid_factor_count"] = valid_count
     score_table["composite_raw"] = score_table[score_names].mean(axis=1)
     score_table.loc[valid_count < minimum_factors, "composite_raw"] = pd.NA
     score_table["factor_processed"] = score_table.groupby("trade_date")[
         "composite_raw"
     ].transform(zscore)
+    score_table.loc[
+        score_table["trade_date"] < research_start, "factor_processed"
+    ] = pd.NA
     score_table = score_table.merge(labels, on=["trade_date", "symbol"], how="left")
     score_table = score_table.merge(
         prepared[["trade_date", "symbol", "close", "in_universe"]],
@@ -164,10 +206,23 @@ def run_factor_suite(
 
     factor_summary = pd.DataFrame(summaries)
     factor_corr = _factor_correlation(score_table, score_names)
+    factor_coverage = pd.DataFrame(coverage_rows)
     factor_summary.to_csv(
         output / "factor_summary.csv", index=False, encoding="utf-8-sig"
     )
     factor_corr.to_csv(output / "factor_correlation.csv", encoding="utf-8-sig")
+    factor_coverage.to_csv(
+        output / "factor_coverage.csv", index=False, encoding="utf-8-sig"
+    )
+    stability = factor_stability_table(
+        score_table[score_table["trade_date"] >= research_start],
+        score_names,
+        label_col,
+        [int(value) for value in settings.validation.get("recent_ic_windows", [])],
+    )
+    stability.to_csv(
+        output / "factor_stability.csv", index=False, encoding="utf-8-sig"
+    )
     score_table.to_parquet(output / "factor_scores.parquet", index=False)
     latest.to_csv(output / "latest_signal.csv", index=False, encoding="utf-8-sig")
     targets.to_csv(output / "target_weights.csv", index=False, encoding="utf-8-sig")
@@ -180,14 +235,26 @@ def run_factor_suite(
         output / "equity.svg",
         "Composite strategy NAV",
     )
+    walk_forward = run_walk_forward(
+        score_table,
+        prepared,
+        score_names,
+        label_col,
+        settings,
+        output / "walk_forward",
+        next_trading_date=next_trading_date,
+    )
     summary = {
         "data_source": market.attrs.get("provider", "external"),
         "start_date": str(pd.Timestamp(market["trade_date"].min()).date()),
+        "research_start_date": str(research_start.date()),
         "end_date": str(latest_date.date()),
         "next_trading_date": str(pd.Timestamp(next_trading_date).date())
         if next_trading_date is not None
         else None,
         "factor_count": len(score_names),
+        "minimum_valid_factors": minimum_factors,
+        "minimum_factor_coverage": settings.minimum_factor_coverage,
         "top_n": settings.top_n,
         "exit_rank": settings.exit_rank,
         "rebalance_frequency": settings.rebalance_frequency,
@@ -195,6 +262,7 @@ def run_factor_suite(
             composite_ic, periods_per_year=252 / settings.forward_periods
         ),
         "portfolio": portfolio,
+        "walk_forward": walk_forward,
         "warning": market.attrs.get("research_warning", "Research use only."),
     }
     (output / "summary.json").write_text(
@@ -229,7 +297,7 @@ def run_factor_suite(
 - 原始价格用于成交、整手和费用；后复权价格用于因子及未来收益标签。
 - 股份分红送转的现金流尚未逐笔进入账本，回测仍是研究近似，不是券商对账单。
 - 操作清单只是纸面计划，开盘前仍需人工检查停牌、涨跌停、公告和实际资金。
-- 首次指数快照之前的历史仍有当前成员回填偏差。
+- 历史中证500成分按周采样并在周内沿用最近一次已知名单；指数调整生效日附近可能有少量时点误差。
 """
     (output / "REPORT.md").write_text(report, encoding="utf-8")
     return summary, latest, targets

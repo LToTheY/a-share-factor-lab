@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +39,12 @@ class ResearchSettings:
     backtest: dict[str, Any]
     paper_state_file: str
     next_orders_file: str
+    history_start_date: str | None = None
+    research_start_date: str | None = None
+    membership_frequency: str = "W-FRI"
+    minimum_valid_factors: int = 1
+    minimum_factor_coverage: float = 0.0
+    validation: dict[str, Any] = field(default_factory=dict)
 
 
 def load_research_settings(path: str | Path) -> ResearchSettings:
@@ -56,6 +62,12 @@ def load_research_settings(path: str | Path) -> ResearchSettings:
     exit_rank = int(portfolio["exit_rank"])
     if top_n <= 0 or exit_rank < top_n:
         raise ValueError("Require exit_rank >= top_n > 0")
+    minimum_valid = int(factor.get("minimum_valid_factors", 1))
+    if not 1 <= minimum_valid <= len(definitions):
+        raise ValueError("minimum_valid_factors must be within configured factors")
+    minimum_coverage = float(factor.get("minimum_factor_coverage", 0.0))
+    if not 0.0 <= minimum_coverage <= 1.0:
+        raise ValueError("minimum_factor_coverage must be between zero and one")
     return ResearchSettings(
         raw_dir=str(data["raw_dir"]),
         processed_file=str(data["processed_file"]),
@@ -79,4 +91,18 @@ def load_research_settings(path: str | Path) -> ResearchSettings:
         backtest=dict(config["backtest"]),
         paper_state_file=str(paper["state_file"]),
         next_orders_file=str(paper["next_orders_file"]),
+        history_start_date=(
+            str(data["history_start_date"])
+            if data.get("history_start_date") is not None
+            else None
+        ),
+        research_start_date=(
+            str(data["research_start_date"])
+            if data.get("research_start_date") is not None
+            else None
+        ),
+        membership_frequency=str(data.get("membership_frequency", "W-FRI")),
+        minimum_valid_factors=minimum_valid,
+        minimum_factor_coverage=minimum_coverage,
+        validation=dict(config.get("validation", {})),
     )
