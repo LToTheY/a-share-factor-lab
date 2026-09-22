@@ -9,7 +9,11 @@ from typing import Any
 import pandas as pd
 
 from quant_lab.backtest.engine import BacktestConfig, run_backtest
-from quant_lab.backtest.metrics import performance_metrics, turnover_from_trades
+from quant_lab.backtest.metrics import (
+    equal_weight_benchmark,
+    performance_metrics,
+    turnover_from_trades,
+)
 from quant_lab.evaluation.diagnostics import information_coefficient, summarize_ic
 from quant_lab.evaluation.preprocess import zscore
 from quant_lab.portfolio.weights import buffered_top_n_weights
@@ -165,6 +169,23 @@ def run_walk_forward(
     result = run_backtest(oos_market, targets, BacktestConfig(**settings.backtest))
     portfolio = performance_metrics(result.equity)
     portfolio["turnover"] = turnover_from_trades(result.trades, result.equity)
+    benchmark_market = market.copy()
+    if "in_index" in benchmark_market:
+        benchmark_eligibility = "in_index"
+    elif "in_universe" in benchmark_market:
+        benchmark_eligibility = "in_universe"
+    else:
+        benchmark_eligibility = "_benchmark_eligible"
+        benchmark_market[benchmark_eligibility] = True
+    benchmark_price = "adj_close" if "adj_close" in benchmark_market else "close"
+    benchmark = equal_weight_benchmark(
+        benchmark_market,
+        float(settings.backtest["initial_cash"]),
+        eligibility_col=benchmark_eligibility,
+        price_col=benchmark_price,
+        start_date=start,
+    )
+    benchmark_metrics = performance_metrics(benchmark)
     summary = {
         "status": "OK",
         "folds": len(folds),
@@ -172,6 +193,10 @@ def run_walk_forward(
         "end_date": str(pd.Timestamp(oos["trade_date"].max()).date()),
         "ic": summarize_ic(oos_ic, periods_per_year=252 / settings.forward_periods),
         "portfolio": portfolio,
+        "benchmark": benchmark_metrics,
+        "annual_excess_return_vs_benchmark": (
+            portfolio["annual_return"] - benchmark_metrics["annual_return"]
+        ),
         "embargo_trading_days": embargo,
     }
     oos.to_parquet(output / "oos_scores.parquet", index=False)
@@ -181,6 +206,7 @@ def run_walk_forward(
     targets.to_csv(output / "target_weights.csv", index=False)
     result.equity.to_csv(output / "equity.csv", index=False)
     result.trades.to_csv(output / "trades.csv", index=False)
+    benchmark.to_csv(output / "benchmark_equity.csv", index=False)
     (output / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=True),
         encoding="utf-8",

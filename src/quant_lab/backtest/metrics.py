@@ -5,6 +5,50 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from quant_lab.data.schema import require_columns
+
+
+def equal_weight_benchmark(
+    market: pd.DataFrame,
+    initial_cash: float,
+    *,
+    eligibility_col: str = "in_universe",
+    price_col: str = "adj_close",
+    start_date: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Build a diagnostic equal-weight benchmark without crossing membership gaps.
+
+    Returns are calculated on each symbol's complete price history before the
+    point-in-time eligibility mask is applied. This prevents a stock that leaves
+    and later re-enters the universe from contributing a multi-day return as if it
+    occurred in one session. The result is a frictionless daily-rebalanced
+    diagnostic, not a replication of an official index.
+    """
+    require_columns(market, ["trade_date", "symbol", eligibility_col, price_col])
+    if initial_cash <= 0:
+        raise ValueError("initial_cash must be positive")
+    work = market.sort_values(["symbol", "trade_date"]).copy()
+    work["benchmark_return"] = work.groupby("symbol", sort=False)[
+        price_col
+    ].pct_change(fill_method=None)
+    eligible = work[eligibility_col].fillna(False).astype(bool)
+    daily = work.loc[eligible].groupby("trade_date")["benchmark_return"].mean()
+    all_dates = pd.DatetimeIndex(sorted(pd.to_datetime(market["trade_date"]).unique()))
+    daily = daily.reindex(all_dates).fillna(0.0)
+    if start_date is not None:
+        daily = daily[daily.index >= pd.Timestamp(start_date)].copy()
+        if not daily.empty:
+            daily.iloc[0] = 0.0
+    if daily.empty:
+        raise ValueError("Benchmark has no observations in the requested period")
+    return pd.DataFrame(
+        {
+            "trade_date": daily.index,
+            "return": daily.to_numpy(),
+            "equity": initial_cash * (1.0 + daily).cumprod().to_numpy(),
+        }
+    )
+
 
 def performance_metrics(
     equity: pd.DataFrame,

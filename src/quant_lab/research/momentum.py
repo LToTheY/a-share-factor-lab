@@ -10,7 +10,11 @@ import numpy as np
 import pandas as pd
 
 from quant_lab.backtest.engine import BacktestConfig, run_backtest
-from quant_lab.backtest.metrics import performance_metrics, turnover_from_trades
+from quant_lab.backtest.metrics import (
+    equal_weight_benchmark,
+    performance_metrics,
+    turnover_from_trades,
+)
 from quant_lab.data.audit import audit_daily_data, write_audit_report
 from quant_lab.data.panel import make_adjusted_market
 from quant_lab.evaluation.diagnostics import (
@@ -69,18 +73,6 @@ def _prepare_momentum(
             validate="one_to_one",
         )
     return result.sort_values(["trade_date", "symbol"]).reset_index(drop=True)
-
-
-def _benchmark_equity(market: pd.DataFrame, initial_cash: float) -> pd.DataFrame:
-    work = market[market["in_universe"]].sort_values(["symbol", "trade_date"]).copy()
-    work["return"] = work.groupby("symbol", sort=False)["close"].pct_change()
-    daily = work.groupby("trade_date")["return"].mean().fillna(0.0)
-    return pd.DataFrame(
-        {
-            "trade_date": daily.index,
-            "equity": initial_cash * (1 + daily).cumprod().to_numpy(),
-        }
-    )
 
 
 def _robustness_grid(
@@ -195,7 +187,11 @@ def run_momentum_study(
     portfolio["tax"] = (
         float(result.trades["tax"].sum()) if not result.trades.empty else 0.0
     )
-    benchmark = _benchmark_equity(adjusted_market, initial_cash)
+    benchmark = equal_weight_benchmark(
+        adjusted_market,
+        initial_cash,
+        price_col="close",
+    )
     benchmark_metrics = performance_metrics(benchmark)
     robustness = _robustness_grid(adjusted_market, backtest_config, effective_top_n)
 

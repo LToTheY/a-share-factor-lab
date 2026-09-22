@@ -83,11 +83,19 @@ def _append_partition(
     adjustflag: str,
     include_suffix: bool = True,
 ) -> int:
+    existing_dates = (
+        pd.read_parquet(path, columns=["trade_date"])
+        if path.exists()
+        else pd.DataFrame()
+    )
+    ranges = _partition_ranges(
+        existing_dates, requested_start, requested_end, include_suffix
+    )
+    if not ranges:
+        return 0
     existing = pd.read_parquet(path) if path.exists() else pd.DataFrame()
     incoming_frames = []
-    for start, end in _partition_ranges(
-        existing, requested_start, requested_end, include_suffix
-    ):
+    for start, end in ranges:
         incoming = _with_retry(
             downloader,
             lambda start=start, end=end: downloader.daily_history(

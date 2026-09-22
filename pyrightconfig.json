@@ -1,0 +1,19 @@
+{
+  "include": [
+    "src",
+    "scripts",
+    "tests"
+  ],
+  "exclude": [
+    ".venv",
+    "data",
+    "reports/generated"
+  ],
+  "extraPaths": [
+    "src"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic"
+}

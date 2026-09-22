@@ -8,6 +8,10 @@
 .\scripts\daily_update.ps1
 ```
 
+若项目从其他目录迁移过，先运行 `scripts\doctor.py`。其中
+`editable_install_matches_project` 必须为 `true`；否则执行
+`.\.venv\Scripts\python.exe -m pip install --no-deps -e .`，避免 Python 继续导入旧目录。
+
 系统自动完成：
 
 ```text
@@ -28,6 +32,9 @@
 3. `reports/generated/daily_factor_lab/next_day_orders.csv`
 4. `reports/generated/daily_factor_lab/REPORT.md`
 5. `data/processed/baostock_daily_audit/audit.md`
+
+报告同时给出历史时点成分股等权、每日再平衡且不计成本的诊断基准。它用于检查策略
+是否只是市场暴露，不是官方中证500指数，也不是可直接复制的投资组合。
 
 `latest_signal.csv`每天都会更新。默认`W-FRI`周频调仓，因此普通工作日的
 `next_day_orders.csv`会明确写`NO_TRADE`。改成日频后，排名缓冲仍可能让当天没有订单。
@@ -86,7 +93,9 @@ data/state/paper_portfolio.json
 
 - `REVIEW_REQUIRED`不是自动下单；开盘前必须重新检查停牌、涨跌停、公告和实际余额。
 - `NO_TRADE`表示今天计算了信号，但不满足调仓条件或目标没有变化。
-- `CALENDAR_UNKNOWN`、审计失败、数据过期时不要交易。
+- `CALENDAR_UNKNOWN`、`PRICE_MISSING`、审计失败、数据过期时不要交易。
+- 纸面账户中的已有持仓即使跌出当前股票池，也会使用最新全市场截面价格计入账户净值；
+  若任何已有持仓缺少有效价格，系统停止生成调仓建议，要求先人工核对账户状态。
 - A股当日买入通常不能当日卖出，本项目按下一交易日开盘执行。
 - 免费接口的历史成分按周采样并在周内沿用最近已知名单；指数调整生效日附近可能存在
   少量时点误差，报告中必须保留这一限制。

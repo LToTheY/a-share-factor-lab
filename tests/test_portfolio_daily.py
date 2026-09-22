@@ -69,6 +69,48 @@ class PortfolioDailyTest(unittest.TestCase):
         self.assertEqual(orders.iloc[0]["status"], "REVIEW_REQUIRED")
         self.assertEqual(orders.iloc[0]["target_shares"], 5000)
 
+    def test_positions_outside_signal_universe_are_included_in_account_value(self) -> None:
+        latest = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2025-01-10"]),
+                "symbol": ["A"],
+                "close": [10.0],
+                "factor_rank": [1.0],
+            }
+        )
+        targets = pd.DataFrame(
+            {"symbol": ["A"], "target_weight": [0.5], "factor_rank": [1.0]}
+        )
+        prices = pd.DataFrame({"symbol": ["A", "B"], "close": [10.0, 20.0]})
+        orders = build_next_day_orders(
+            latest,
+            targets,
+            {"cash": 0.0, "positions": {"B": 100}},
+            "2025-01-13",
+            "W-FRI",
+            reference_prices=prices,
+        )
+        buy = orders[(orders["symbol"] == "A") & (orders["side"] == "BUY")].iloc[0]
+        self.assertEqual(buy["target_shares"], 100)
+
+    def test_missing_held_position_price_blocks_order_plan(self) -> None:
+        latest = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2025-01-10"]),
+                "symbol": ["A"],
+                "close": [10.0],
+                "factor_rank": [1.0],
+            }
+        )
+        orders = build_next_day_orders(
+            latest,
+            pd.DataFrame(),
+            {"cash": 0.0, "positions": {"B": 100}},
+            "2025-01-13",
+            "W-FRI",
+        )
+        self.assertEqual(orders.iloc[0]["status"], "PRICE_MISSING")
+
 
 if __name__ == "__main__":
     unittest.main()

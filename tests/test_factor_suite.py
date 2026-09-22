@@ -57,10 +57,13 @@ class FactorSuiteTest(unittest.TestCase):
             )
             self.assertEqual(summary["top_n"], 5)
             self.assertEqual(summary["factor_count"], 2)
+            self.assertIn("benchmark", summary)
+            self.assertIn("annual_excess_return_vs_benchmark", summary)
             self.assertFalse(latest.empty)
             self.assertLessEqual(targets.groupby("trade_date").size().max(), 5)
             self.assertTrue((output / "factor_summary.csv").exists())
             self.assertTrue((output / "factor_correlation.csv").exists())
+            self.assertTrue((output / "benchmark_equity.csv").exists())
 
 
 if __name__ == "__main__":

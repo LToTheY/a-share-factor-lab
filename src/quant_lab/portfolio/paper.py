@@ -60,6 +60,7 @@ def build_next_day_orders(
     next_trade_date: str | pd.Timestamp | None,
     frequency: str,
     lot_size: int = 100,
+    reference_prices: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Create proposals only; never mutate holdings or claim future execution."""
     if latest_signals.empty:
@@ -91,10 +92,45 @@ def build_next_day_orders(
         )
 
     close_map = latest_signals.set_index("symbol")["close"].to_dict()
+    if reference_prices is not None:
+        required = {"symbol", "close"}
+        missing_columns = required.difference(reference_prices.columns)
+        if missing_columns:
+            raise ValueError(
+                "reference_prices is missing columns: "
+                + ", ".join(sorted(missing_columns))
+            )
+        close_map.update(reference_prices.set_index("symbol")["close"].to_dict())
     positions = {str(key): int(value) for key, value in state["positions"].items()}
-    account_value = float(state["cash"]) + sum(
-        shares * float(close_map.get(symbol, 0.0))
+    missing_prices = sorted(
+        symbol
         for symbol, shares in positions.items()
+        if shares
+        and (
+            symbol not in close_map
+            or not np.isfinite(float(close_map[symbol]))
+            or float(close_map[symbol]) <= 0
+        )
+    )
+    if missing_prices:
+        return pd.DataFrame(
+            [
+                {
+                    "status": "PRICE_MISSING",
+                    "signal_date": signal_date,
+                    "planned_trade_date": next_date,
+                    "reason": (
+                        "Cannot value existing positions; update prices or paper state: "
+                        + ", ".join(missing_prices)
+                    ),
+                }
+            ],
+            columns=ORDER_COLUMNS,
+        )
+    account_value = float(state["cash"]) + sum(
+        shares * float(close_map[symbol])
+        for symbol, shares in positions.items()
+        if shares
     )
     target_map = latest_targets.set_index("symbol").to_dict("index")
     rows = []

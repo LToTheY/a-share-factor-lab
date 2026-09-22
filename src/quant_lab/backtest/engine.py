@@ -22,6 +22,23 @@ class BacktestConfig:
     minimum_commission: float = 5.0
     lot_size: int = 100
 
+    def __post_init__(self) -> None:
+        if self.initial_cash <= 0:
+            raise ValueError("initial_cash must be positive")
+        nonnegative = {
+            "commission_rate": self.commission_rate,
+            "stamp_duty_rate": self.stamp_duty_rate,
+            "historical_stamp_duty_rate": self.historical_stamp_duty_rate,
+            "transfer_fee_rate": self.transfer_fee_rate,
+            "slippage_bps": self.slippage_bps,
+            "minimum_commission": self.minimum_commission,
+        }
+        invalid = [name for name, value in nonnegative.items() if value < 0]
+        if invalid:
+            raise ValueError(f"Backtest costs cannot be negative: {', '.join(invalid)}")
+        if self.lot_size <= 0:
+            raise ValueError("lot_size must be positive")
+
 
 @dataclass
 class BacktestResult:
@@ -70,6 +87,19 @@ def run_backtest(
     market["trade_date"] = pd.to_datetime(market["trade_date"])
     target_weights = target_weights.copy()
     target_weights["trade_date"] = pd.to_datetime(target_weights["trade_date"])
+    if market.duplicated(["trade_date", "symbol"]).any():
+        raise ValueError("Market contains duplicate trade_date/symbol rows")
+    if target_weights.duplicated(["trade_date", "symbol"]).any():
+        raise ValueError("Target weights contain duplicate trade_date/symbol rows")
+    weights = pd.to_numeric(target_weights["target_weight"], errors="coerce")
+    if weights.isna().any() or not np.isfinite(weights).all():
+        raise ValueError("Target weights must be finite numbers")
+    if (weights < 0).any():
+        raise ValueError("Target weights cannot be negative")
+    daily_weight = weights.groupby(target_weights["trade_date"]).sum()
+    if (daily_weight > 1.0 + 1e-9).any():
+        raise ValueError("Target weights cannot exceed 100% on any signal date")
+    target_weights["target_weight"] = weights
     trading_dates = pd.DatetimeIndex(sorted(market["trade_date"].unique()))
     schedule = _execution_schedule(target_weights["trade_date"], trading_dates)
 

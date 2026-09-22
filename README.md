@@ -3,7 +3,8 @@
 [![CI](https://github.com/LToTheY/a-share-factor-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/LToTheY/a-share-factor-lab/actions/workflows/ci.yml)
 
 面向量化研究实习的A股日频因子研究项目。默认使用免费的BaoStock真实日线，
-每次启动只补充缺失日期。当前主线是普通价量因子；机器学习与深度学习留作后续升级。
+每次启动只补充缺失日期。普通价量因子是当前研究主线；Ridge、LightGBM和可选MLP
+滚动样本外框架已经实现，用作对照研究，不直接替代每日纸面信号。
 它不是自动实盘交易系统，
 而是一条透明、可测试、可复现的研究链路：
 
@@ -15,11 +16,14 @@
 ## 现在从这里开始
 
 1. 研究口径：[docs/RESEARCH_SPEC.md](docs/RESEARCH_SPEC.md)
-2. 一边运行一边学习：[docs/LEARNING_GUIDE.md](docs/LEARNING_GUIDE.md)
-3. 免费真实数据每日运行：[docs/DAILY_WORKFLOW.md](docs/DAILY_WORKFLOW.md)
-4. 普通因子研究：[docs/FACTOR_GUIDE.md](docs/FACTOR_GUIDE.md)
-5. 公开研究案例：[docs/CASE_STUDY.md](docs/CASE_STUDY.md)
-6. 架构图：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+2. 从零逐课学习因子：[docs/factor_course/README.md](docs/factor_course/README.md)
+3. 因子研究完整参考：[docs/FACTOR_RESEARCH_TUTORIAL.md](docs/FACTOR_RESEARCH_TUTORIAL.md)
+4. 一边运行一边学习：[docs/LEARNING_GUIDE.md](docs/LEARNING_GUIDE.md)
+5. 免费真实数据每日运行：[docs/DAILY_WORKFLOW.md](docs/DAILY_WORKFLOW.md)
+6. 普通因子速查：[docs/FACTOR_GUIDE.md](docs/FACTOR_GUIDE.md)
+7. 机器学习研究：[docs/ML_RESEARCH.md](docs/ML_RESEARCH.md)
+8. 公开研究案例：[docs/CASE_STUDY.md](docs/CASE_STUDY.md)
+9. 架构图：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 默认的真实数据更新、多因子研究和纸面清单：
 
@@ -72,7 +76,7 @@
 建议使用Python 3.10～3.12。Windows PowerShell：
 
 ```powershell
-cd "C:\Users\lenovo\Desktop\机器学习\a-share-factor-lab"
+cd "C:\Users\lenovo\Desktop\水滴石穿\a-share-factor-lab"
 .\scripts\bootstrap.ps1
 ```
 
@@ -105,6 +109,7 @@ python scripts\run_tests.py
 - `next_day_orders.csv`：下一交易日纸面复核清单，也可能明确写`NO_TRADE`；
 - `factor_summary.csv`和`factor_correlation.csv`：单因子评价和相关性；
 - `factor_coverage.csv`和`factor_stability.csv`：每日覆盖率、年度及近期稳定性；
+- `benchmark_equity.csv`：历史时点成分股等权、每日再平衡、无成本的诊断基准；
 - `walk_forward/`：5年训练、1年验证、1年样本外测试的滚动结果；
 - `target_weights.csv`：统一Top 20、Rank 30退出缓冲后的目标持仓；
 - `equity.csv`和`trades.csv`：净值及逐笔交易；
@@ -190,39 +195,21 @@ FACTOR_REGISTRY["my_factor"] = my_factor
 
 ## 7. 机器学习
 
-`pipeline.py`已经演示以下流程：
+真实数据滚动研究入口：
 
-1. 合并多个因子表；
-2. 生成未来5日截面收益排名标签；
-3. 按时间切分训练/验证/测试；
-4. 边界留出7日隔离；
-5. 只在训练集拟合中位数、均值和标准差；
-6. 在测试集计算每日RankIC。
+```powershell
+.\.venv\Scripts\python.exe scripts\run_ml_study.py
+.\.venv\Scripts\python.exe scripts\run_ml_study.py --models ridge lightgbm
+```
+
+流程使用5年训练、1年验证、1年测试和5交易日隔离带，输出逐折模型、样本外预测、
+RankIC、含成本/无成本组合和预设组合敏感性。完整口径见
+[机器学习研究主线](docs/ML_RESEARCH.md)。`pipeline.py`仍保留为合成数据教学入口。
 
 模型顺序建议固定为：
 
 ```text
 因子等权 → Ridge → LightGBM → MLP → 有明确时序结构后再做LSTM/Transformer
-```
-
-LightGBM：
-
-```python
-from quant_lab.models.lightgbm_model import make_lightgbm_model
-
-model = make_lightgbm_model(random_state=42)
-model.fit(train[features], train["label"])
-prediction = model.predict(test[features])
-```
-
-MLP：
-
-```python
-from quant_lab.models.mlp import MLPRegressor
-
-model = MLPRegressor(hidden_size=64, epochs=30)
-model.fit(train[features], train["label"])
-prediction = model.predict(test[features])
 ```
 
 不要只报告MSE或方向准确率；至少报告每日RankIC、ICIR、Top-K组合、换手率和

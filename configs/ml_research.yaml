@@ -1,0 +1,63 @@
+project:
+  output_dir: reports/generated/ml_factor_lab
+
+data:
+  scores_file: reports/generated/daily_factor_lab/factor_scores.parquet
+  market_file: data/processed/baostock_daily.parquet
+  research_config: configs/research.yaml
+
+features:
+  # 这些列已经逐日去极值、标准化并乘以事先约定的方向。
+  names:
+    - momentum_20_5
+    - momentum_60_5
+    - momentum_120_20
+    - reversal_5
+    - reversal_20
+    - volatility_20
+    - volatility_60
+    - amihud_20
+    - turnover_mean_20
+    - amount_momentum_20
+    - price_volume_corr_20
+  label_col: forward_return_5d
+  minimum_valid_features: 8
+
+validation:
+  train_years: 5
+  validation_years: 1
+  test_years: 1
+  step_years: 1
+  embargo_trading_days: 5
+
+models:
+  # 默认只启用无额外依赖、可稳定复现的Ridge。可在命令行增加lightgbm或mlp。
+  enabled: [ridge]
+  ridge:
+    alphas: [0.1, 1.0, 10.0, 100.0]
+  lightgbm:
+    n_estimators: 1000
+    learning_rate: 0.03
+    num_leaves: 31
+    max_depth: -1
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+    early_stopping_rounds: 50
+    verbosity: -1
+    force_col_wise: true
+  mlp:
+    hidden_size: 64
+    learning_rate: 0.001
+    epochs: 50
+    batch_size: 2048
+    patience: 5
+
+portfolio_sensitivity:
+  # 主结果仍使用research.yaml；以下变体只用于解释换手与成本，不用于事后选最优参数。
+  - {name: weekly_top20_buffer30, frequency: W-FRI, top_n: 20, exit_rank: 30, max_weight: 0.05}
+  - {name: weekly_top20_buffer50, frequency: W-FRI, top_n: 20, exit_rank: 50, max_weight: 0.05}
+  - {name: weekly_top50_buffer75, frequency: W-FRI, top_n: 50, exit_rank: 75, max_weight: 0.02}
+  - {name: monthly_top20_buffer30, frequency: M, top_n: 20, exit_rank: 30, max_weight: 0.05}

@@ -121,6 +121,10 @@ def main() -> None:
         if latest_target_date is not None
         else targets
     )
+    latest_market_date = pd.Timestamp(market["trade_date"].max())
+    latest_reference_prices = market.loc[
+        market["trade_date"] == latest_market_date, ["symbol", "close"]
+    ]
     orders = build_next_day_orders(
         latest,
         latest_targets,
@@ -128,6 +132,7 @@ def main() -> None:
         manifest["next_trade_date"],
         settings.rebalance_frequency,
         lot_size=int(settings.backtest["lot_size"]),
+        reference_prices=latest_reference_prices,
     )
     orders_path = ROOT / settings.next_orders_file
     orders_path.parent.mkdir(parents=True, exist_ok=True)

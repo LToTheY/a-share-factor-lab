@@ -9,7 +9,11 @@ from typing import Any
 import pandas as pd
 
 from quant_lab.backtest.engine import BacktestConfig, run_backtest
-from quant_lab.backtest.metrics import performance_metrics, turnover_from_trades
+from quant_lab.backtest.metrics import (
+    equal_weight_benchmark,
+    performance_metrics,
+    turnover_from_trades,
+)
 from quant_lab.evaluation.diagnostics import (
     add_forward_returns,
     information_coefficient,
@@ -192,9 +196,18 @@ def run_factor_suite(
         next_trading_date=next_trading_date,
     )
     backtest_config = BacktestConfig(**settings.backtest)
-    result = run_backtest(prepared, targets, backtest_config)
+    backtest_market = prepared[prepared["trade_date"] >= research_start]
+    result = run_backtest(backtest_market, targets, backtest_config)
     portfolio = performance_metrics(result.equity)
     portfolio["turnover"] = turnover_from_trades(result.trades, result.equity)
+    benchmark_eligibility = "in_index" if "in_index" in prepared else "in_universe"
+    benchmark = equal_weight_benchmark(
+        prepared,
+        backtest_config.initial_cash,
+        eligibility_col=benchmark_eligibility,
+        start_date=research_start,
+    )
+    benchmark_metrics = performance_metrics(benchmark)
     latest_date = pd.Timestamp(score_table["trade_date"].max())
     latest = score_table[
         (score_table["trade_date"] == latest_date) & score_table["in_universe"]
@@ -229,6 +242,7 @@ def run_factor_suite(
     result.equity.to_csv(output / "equity.csv", index=False)
     result.trades.to_csv(output / "trades.csv", index=False)
     result.positions.to_csv(output / "positions.csv", index=False)
+    benchmark.to_csv(output / "benchmark_equity.csv", index=False)
     write_line_svg(composite_ic, output / "composite_ic.svg", "Composite daily RankIC")
     write_line_svg(
         result.equity.set_index("trade_date")["equity"] / backtest_config.initial_cash,
@@ -262,6 +276,16 @@ def run_factor_suite(
             composite_ic, periods_per_year=252 / settings.forward_periods
         ),
         "portfolio": portfolio,
+        "benchmark": {
+            **benchmark_metrics,
+            "definition": (
+                "point-in-time constituent equal-weight, daily rebalanced, "
+                "before costs"
+            ),
+        },
+        "annual_excess_return_vs_benchmark": (
+            portfolio["annual_return"] - benchmark_metrics["annual_return"]
+        ),
         "walk_forward": walk_forward,
         "warning": market.attrs.get("research_warning", "Research use only."),
     }
@@ -290,6 +314,15 @@ def run_factor_suite(
 ## 组合回测
 
 {markdown_table(pd.DataFrame([portfolio]))}
+
+## 诊断基准
+
+历史时点成分股每日等权、每日再平衡且不计成本，仅用于判断策略是否优于简单市场暴露，
+不代表可直接复制的官方中证500指数。
+
+{markdown_table(pd.DataFrame([benchmark_metrics]))}
+
+- 策略年化收益减诊断基准年化收益：{summary["annual_excess_return_vs_benchmark"]:.4f}
 
 ## 重要边界
 
