@@ -23,7 +23,7 @@ jobs:
           cache: pip
 
       - name: Install project and test dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[free-data,dev]"
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[free-data,dashboard,dev]"
 
       - name: Lint
         run: ruff check .
