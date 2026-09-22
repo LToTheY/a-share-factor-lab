@@ -24,6 +24,7 @@
 7. 机器学习研究：[docs/ML_RESEARCH.md](docs/ML_RESEARCH.md)
 8. 公开研究案例：[docs/CASE_STUDY.md](docs/CASE_STUDY.md)
 9. 架构图：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+10. 本地网页看板：[docs/DASHBOARD.md](docs/DASHBOARD.md)
 
 默认的真实数据更新、多因子研究和纸面清单：
 
@@ -32,6 +33,14 @@
 ```
 
 合成数据仍只用于自动测试，不作为默认研究数据或简历结果。
+
+本地只读研究看板：
+
+```powershell
+.\scripts\run_dashboard.ps1
+```
+
+看板展示数据状态、因子诊断、回测和Walk-forward样本外结果，不会修改模拟账户或发送交易指令。
 
 ## 已实现
 

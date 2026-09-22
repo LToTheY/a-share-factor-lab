@@ -16,3 +16,5 @@ lightgbm>=4,<5
 torch>=2.6,<3
 pytest>=8,<10
 ruff>=0.6,<1
+streamlit>=1.41,<2
+plotly>=5.24,<7
