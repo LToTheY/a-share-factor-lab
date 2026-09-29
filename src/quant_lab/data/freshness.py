@@ -68,7 +68,13 @@ def validate_latest_panel(
             gaps.append({"symbol": symbol, "missing_sessions": len(absent), "invalid_rows": int(broken.sum())})
         day = rows.loc[rows["trade_date"].eq(target)]
         flags = ["is_st_known", "is_suspended_known", "limit_status_known"]
-        if not day.empty and (any(c not in day for c in flags) or not day[flags].fillna(False).eq(True).all(axis=None)):
+        states = ["is_st", "is_suspended", "is_limit_up", "is_limit_down"]
+        if not day.empty and (
+            any(c not in day for c in flags + states)
+            or not day[flags].fillna(False).eq(True).all(axis=None)
+            or not day[states].notna().all(axis=None)
+            or not day[states].isin([False, True]).all(axis=None)
+        ):
             bad_latest.append(symbol)
     if gaps:
         errors.append(f"{len(gaps)}只股票的因子观察窗口存在行情缺口或异常")

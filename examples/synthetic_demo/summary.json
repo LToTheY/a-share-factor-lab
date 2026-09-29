@@ -12,13 +12,13 @@
   "end_date": "2024-12-18",
   "factor_count": 1,
   "portfolio": {
-    "total_return": -0.12282969113483055,
-    "annual_return": -0.014026294675474893,
-    "annual_volatility": 0.19668508783728222,
-    "sharpe": 0.02655568815115353,
-    "max_drawdown": -0.6147765376326797,
-    "calmar": -0.022815273220227226,
-    "turnover": 7.074784732808564
+    "total_return": -0.12286312694197155,
+    "annual_return": -0.0140303456232167,
+    "annual_volatility": 0.19668010348988837,
+    "sharpe": 0.026530467534777766,
+    "max_drawdown": -0.6147757994090721,
+    "calmar": -0.022821889925892968,
+    "turnover": 7.072527040127618
   },
   "composite": {
     "mean_ic": 0.0007128994478581937,

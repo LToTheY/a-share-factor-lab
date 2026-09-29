@@ -1,0 +1,97 @@
+{
+  "provider": "synthetic",
+  "warning": "合成数据：只验证工程流程，不能证明真实收益。",
+  "start": "2016-01-01",
+  "end": "2024-12-18",
+  "strategy": {
+    "factor_weights": {
+      "range_position_20": 1.0
+    },
+    "top_n": 5,
+    "exit_rank": 30,
+    "rebalance_frequency": "W-FRI",
+    "max_weight": 0.2,
+    "minimum_factor_coverage": 0.8,
+    "selection_mode": "affordable",
+    "cash_buffer": 0.02,
+    "allow_star": false,
+    "allow_chinext": false
+  },
+  "costs": {
+    "commission_rate": 0.0003,
+    "stamp_duty_rate": 0.0005,
+    "historical_stamp_duty_rate": 0.001,
+    "stamp_duty_change_date": "2023-08-28",
+    "transfer_fee_rate": 1e-05,
+    "historical_transfer_fee_multiplier": 2.0,
+    "transfer_fee_change_date": "2022-04-29",
+    "slippage_bps": 5.0,
+    "minimum_commission": 5.0,
+    "lot_size": 100
+  },
+  "source_code_version": "be3c2fea0c3e8bb03dccf1dd50bf5ef2df67710f45ca70538446d16c408ce89d",
+  "runtime": {
+    "python": "3.12.14",
+    "system": "Windows",
+    "packages": {
+      "numpy": "2.5.3",
+      "pandas": "2.2.3",
+      "duckdb": "1.5.5",
+      "pyarrow": "23.0.1",
+      "scipy": "1.18.1",
+      "scikit-learn": "1.9.1"
+    }
+  },
+  "cases": [
+    {
+      "initial_cash": 5000.0,
+      "metrics": {
+        "total_return": 0.38721060276664576,
+        "annual_return": 0.035906928232410706,
+        "annual_volatility": 0.16843984710595514,
+        "sharpe": 0.29365195218125445,
+        "max_drawdown": -0.48997939243248456,
+        "calmar": 0.07328252736130818,
+        "turnover": 9.558101267706187
+      },
+      "diagnostics": {
+        "trade_count": 136,
+        "rebalance_count": 469,
+        "total_cost": 733.5431620816914,
+        "average_holdings": 4.53612654980761,
+        "average_target_holdings": 4.609808102345416,
+        "average_cash_ratio": 0.28440612765741413,
+        "cost_to_initial_cash": 0.14670863241633827,
+        "unfilled_events": 33,
+        "stale_valuation_events": 0,
+        "corporate_action_events": 0,
+        "annual_excess_return": 0.03544357693610256
+      }
+    },
+    {
+      "initial_cash": 10000.0,
+      "metrics": {
+        "total_return": -0.13084675382847677,
+        "annual_return": -0.015001576432010166,
+        "annual_volatility": 0.16953908756296202,
+        "sharpe": -0.0043771700429338775,
+        "max_drawdown": -0.5685751143866273,
+        "calmar": -0.026384511126896056,
+        "turnover": 5.170941545883243
+      },
+      "diagnostics": {
+        "trade_count": 106,
+        "rebalance_count": 469,
+        "total_cost": 572.2575024933635,
+        "average_holdings": 4.991449337323642,
+        "average_target_holdings": 5.0,
+        "average_cash_ratio": 0.26817002016597824,
+        "cost_to_initial_cash": 0.05722575024933635,
+        "unfilled_events": 4,
+        "stale_valuation_events": 0,
+        "corporate_action_events": 0,
+        "annual_excess_return": -0.015464927728318312
+      }
+    }
+  ]
+}

@@ -68,6 +68,7 @@ def raw_prices(dates, symbol="000001.SZ"):
                          "low": 9.9, "close": 10.0, "preclose": 10.0, "volume": 1_000_000.0,
                          "amount": 10_000_000.0, "turnover_rate": 1.0, "is_st": False,
                          "is_suspended": False, "is_st_known": True, "is_suspended_known": True,
+                         "is_limit_up": False, "is_limit_down": False,
                          "up_limit": np.nan, "down_limit": np.nan})
 
 
@@ -105,6 +106,23 @@ def test_nullable_status_is_unknown_not_implicitly_true():
     result = validate_latest_panel(market, dates[-1], {"000001.SZ"}, dates, lookback=5)
     assert not result["passed"]
     assert result["unknown_status_symbols"] == ["000001.SZ"]
+
+
+@pytest.mark.parametrize("field", ["is_st", "is_suspended", "is_limit_up", "is_limit_down"])
+def test_known_marker_cannot_override_missing_actual_state(field):
+    dates = pd.bdate_range("2025-01-02", periods=5)
+    market = raw_prices(dates).assign(adj_close=10., limit_status_known=True)
+    market[field] = market[field].astype("boolean")
+    market.loc[4, field] = pd.NA
+    result = validate_latest_panel(market, dates[-1], {"000001.SZ"}, dates, lookback=5)
+    assert not result["passed"] and result["unknown_status_symbols"] == ["000001.SZ"]
+
+
+def test_absent_limit_state_column_is_not_assumed_normal():
+    dates = pd.bdate_range("2025-01-02", periods=5)
+    market = raw_prices(dates).assign(adj_close=10., limit_status_known=True).drop(columns="is_limit_up")
+    result = validate_latest_panel(market, dates[-1], {"000001.SZ"}, dates, lookback=5)
+    assert not result["passed"] and result["unknown_status_symbols"] == ["000001.SZ"]
 
 
 def test_short_calendar_cannot_shorten_required_factor_window():
