@@ -91,7 +91,7 @@ Windows 测试临时目录使用项目内唯一目录，避免系统临时目录
 只对报告归档及任务结果做NTFS透明压缩，1,546个文件前后内容哈希完全一致，实际分配空间减少46,747,600字节。
 容量和保护文件哈希见`data/state/final_local_audit.json`。
 
-首轮新增功能已发布为`6d9c663`，GitHub的Windows和Linux各228项测试通过，
+首轮新增功能已发布为`6d9c663`，GitHub的Windows和Linux CI通过，
 记录：[CI运行](https://github.com/LToTheY/a-share-factor-lab/actions/runs/36618831006)。
 继续审计后补充15个价量因子的前缀不变、未来扰动、输入乱序、跨股隔离与缺口预热检查。
 
@@ -117,3 +117,12 @@ Windows 测试临时目录使用项目内唯一目录，避免系统临时目录
 公开合成案例更新为同数据、同规则、不同初始资金的净值/回撤/现金比例对照。
 导出器只发布白名单计算参数和汇总，拒绝真实数据、不同版本或并非单一资金变化的案例；
 已实测真实来源与相同资金输入被拒绝且公开文件不变。原位置参数报告导出命令继续兼容。
+
+最终功能提交`b19e386`的[GitHub CI](https://github.com/LToTheY/a-share-factor-lab/actions/runs/36621551900)
+在Windows和Linux均为258 passed、3 skipped；跳过的是未安装可选WRDS、LightGBM、PyTorch依赖的检查。
+本机包含这些依赖，261项全部通过。两种环境的结果分别记录，不把跳过描述为通过。
+
+旧行情恢复包、修改前代码备份和计算源码快照共9个归档只读校验通过；没有展开或执行恢复内容。
+拟清理本轮14个可重建测试临时目录及验收浏览器缓存约63.6 MB时，自动审批返回
+“blocked by policy”，未执行删除。精确范围和保留字节记录在
+`data/state/own_temporary_cleanup_result.json`，数据、研究失败和历史实验均未删除。
