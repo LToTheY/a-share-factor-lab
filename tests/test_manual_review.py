@@ -136,9 +136,9 @@ def test_manual_page_hides_orders_after_account_or_code_change(tmp_path, monkeyp
     monkeypatch.setattr(manual_review, "current_result_status", lambda *_, **__: (True, "数据检查通过"))
     monkeypatch.setattr(manual_review, "code_version", lambda _: "version_one")
     app = AppTest.from_string("from dashboard.views.manual_review import render\nrender()").run()
-    result_tables = lambda: [item for item in app.dataframe if "symbol" in item.value.columns]
+    result_tables = lambda: [item for item in app.dataframe if {"拟交易股数", "factor_rank"} & set(item.value.columns)]
     assert not app.exception and len(result_tables()) == 2
-    assert result_tables()[0].value.iloc[0].symbol == "000001.SZ"
+    assert result_tables()[0].value.iloc[0]["股票代码"] == "000001.SZ"
     monkeypatch.setattr(manual_review, "code_version", lambda _: "version_two")
     app.run()
     assert not app.exception and not result_tables()

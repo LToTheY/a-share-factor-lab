@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.context import PROJECT_ROOT, page_intro
+from dashboard.order_display import order_preview
 from quant_lab.data.freshness import current_result_status
 
 
@@ -80,7 +81,7 @@ def render() -> None:
     orders = pd.read_csv(output / "next_day_orders.csv")
     signals = pd.read_csv(output / "latest_signal.csv")
     st.subheader("纸面调仓建议")
-    st.dataframe(orders, hide_index=True, width="stretch")
+    st.dataframe(order_preview(orders), hide_index=True, width="stretch")
     st.caption("仍需核对实际持仓、资金及次日开盘状态，由你决定是否交易。")
     st.subheader("最新因子排名")
     st.dataframe(signals[["trade_date", "symbol", "factor_rank", "factor_processed", "close", "valid_factor_count"]].head(50), hide_index=True, width="stretch")

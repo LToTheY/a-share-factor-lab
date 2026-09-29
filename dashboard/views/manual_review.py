@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.context import PROJECT_ROOT, page_intro
+from dashboard.order_display import order_preview
 from dashboard.research_runner import jobs_panel
 from quant_lab.dashboard.experiments import ExperimentStore
 from quant_lab.data.freshness import current_result_status
@@ -123,7 +124,7 @@ def render():
         output = local_path(PROJECT_ROOT, status["report_dir"], area=f"reports/generated/manual_review/{chosen}")
         orders = pd.read_csv(output / "next_day_orders.csv")
         st.subheader("人工复核清单")
-        st.dataframe(orders, hide_index=True, width="stretch")
+        st.dataframe(order_preview(orders), hide_index=True, width="stretch")
         st.caption("金额按上次收盘及费用假设估算。次日价格和交易状态尚未知；卖单未成交时，需要重新计算买入预算。")
         st.download_button("导出本次复核清单", orders.to_csv(index=False).encode("utf-8-sig"), file_name=f"manual_review_{status['data_through']}.csv", mime="text/csv")
         signals = pd.read_csv(output / "latest_signal.csv")

@@ -126,3 +126,7 @@ Windows 测试临时目录使用项目内唯一目录，避免系统临时目录
 拟清理本轮14个可重建测试临时目录及验收浏览器缓存约63.6 MB时，自动审批返回
 “blocked by policy”，未执行删除。精确范围和保留字节记录在
 `data/state/own_temporary_cleanup_result.json`，数据、研究失败和历史实验均未删除。
+
+03:58完成最后一轮交互收尾：两处人工调仓清单使用中文列名，无调仓时直接显示日期和原因。
+不修改CSV导出字段、不修改计算代码指纹，两个已完成的最新数据结果继续有效。
+真实浏览器复核显示正常；全套264 passed（`data/interim/final-localized-tests.log`），Ruff通过。
