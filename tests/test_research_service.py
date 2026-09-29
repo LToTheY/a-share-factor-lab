@@ -12,7 +12,7 @@ from quant_lab.backtest.lot_rules import round_order
 from quant_lab.data.synthetic import make_synthetic_daily_data
 from quant_lab.factors.custom_loader import refresh_custom_factors
 from quant_lab.research.jobs import JobStore, atomic_json, execute_job
-from quant_lab.research.service import dataset_version, load_inputs
+from quant_lab.research.service import code_version, dataset_version, load_inputs
 from quant_lab.research.settings import FactorDefinition, load_research_settings
 from quant_lab.strategy.sandbox import StrategySpec, run_strategy
 from quant_lab.strategy.validation import walk_forward_strategy
@@ -67,7 +67,7 @@ def test_jobs_dedupe_cancel_failure_keep_existing_results(tmp_path):
 def test_cancel_during_computation_never_publishes_candidate(tmp_path, monkeypatch):
     from quant_lab.research import jobs
     storage = JobStore(tmp_path)
-    payload = {"config": {}, "dataset": {}, "code_version": "", "factor_version": ""}
+    payload = {"config": {}, "dataset": {}, "code_version": code_version(tmp_path), "factor_version": ""}
     status = storage.submit("research", payload, launch=False)
     def compute(root, request, output, progress):
         (output / "partial.txt").write_text("incomplete")
@@ -165,7 +165,7 @@ def test_own_strategy_walk_forward_and_embargo(tmp_path):
     assert result["status"] == "ready"
     assert result["strategy"]["factor_weights"] == {"alpha": -1}
     assert result["backtest"]["initial_cash"] == 5000
-    assert result["embargo"] == 5
+    assert result["embargo"] == 6  # next-open entry plus five held sessions
     dates = pd.DatetimeIndex(sorted(scores.trade_date.unique()))
     fold = result["folds"][0]
     assert dates.searchsorted(fold["test_start"]) - dates.searchsorted(fold["validation_end"]) > 5

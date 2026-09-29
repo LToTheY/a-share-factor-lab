@@ -37,3 +37,4 @@ configs/*.local.*
 .pgpass
 .pg_service.conf
 /docs/SESSION_HANDOFF.md
+requirements-local.txt

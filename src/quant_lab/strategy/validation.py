@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from quant_lab.evaluation.diagnostics import (
-    add_forward_returns,
+    add_execution_returns,
     information_coefficient,
 )
 from quant_lab.strategy.sandbox import build_composite_signal, run_strategy
@@ -18,7 +18,7 @@ def walk_forward_strategy(scores, market, spec, config, output: Path, *, train_y
     """Keep the user's weights/rules fixed. No selection on validation or test returns."""
     if min(train_years, validation_years, test_years, horizon) < 1:
         raise ValueError("训练、验证、测试窗口与预测期必须为正")
-    embargo = max(embargo, horizon)
+    embargo = max(embargo, horizon + 1)
     output.mkdir(parents=True, exist_ok=True)
     dates = pd.DatetimeIndex(sorted(scores.trade_date.unique()))
     first = dates[0]
@@ -26,8 +26,11 @@ def walk_forward_strategy(scores, market, spec, config, output: Path, *, train_y
     if test_start + pd.DateOffset(years=test_years) > dates[-1] + pd.Timedelta(days=7):
         return {"status": "insufficient_history", "message": f"窗口不足：需要至少 {train_years}+{validation_years}+{test_years} 年完整区间；当前 {first.date()} 至 {dates[-1].date()}", "folds": []}
     signal = build_composite_signal(scores, spec)
-    label = f"forward_return_{horizon}d"
-    labels = add_forward_returns(market, horizon, price_col="adj_close")[["trade_date", "symbol", label]]
+    label = f"next_open_return_{horizon}d"
+    label_market = market
+    if "adj_open" not in label_market:
+        label_market = market.assign(adj_open=market.open * market.adj_close / market.close.where(market.close.gt(0)))
+    labels = add_execution_returns(label_market, horizon)[["trade_date", "symbol", label]]
     diagnostic = signal.merge(labels, on=["trade_date", "symbol"], validate="one_to_one")
     rows = []
     while test_start + pd.DateOffset(years=test_years) <= dates[-1] + pd.Timedelta(days=7):
@@ -46,12 +49,13 @@ def walk_forward_strategy(scores, market, spec, config, output: Path, *, train_y
         if train.empty or validation.empty or not test_mask.any():
             break
         progress(f"样本外测试 {test_start.date()} 至 {test_end.date()}")
-        result = run_strategy(scores[test_mask], test_market, spec, config)
+        result = run_strategy(scores[test_mask], test_market, spec, config, progress=progress)
         fold = output / f"fold_{len(rows)+1}"
         fold.mkdir(exist_ok=True)
         for key, frame in {"equity": result.backtest.equity, "trades": result.backtest.trades,
                            "positions": result.backtest.positions, "targets": result.targets,
-                           "execution_issues": result.backtest.execution_issues}.items():
+                           "execution_issues": result.backtest.execution_issues,
+                           "selection_audit": result.selection_audit}.items():
             frame.to_parquet(fold / f"{key}.parquet", index=False)
         rows.append({"train_start": str(train.trade_date.min().date()), "train_end": str(train.trade_date.max().date()),
                      "validation_start": str(validation.trade_date.min().date()), "validation_end": str(validation.trade_date.max().date()),
@@ -63,6 +67,7 @@ def walk_forward_strategy(scores, market, spec, config, output: Path, *, train_y
     pd.DataFrame(rows).to_csv(output / "folds.csv", index=False)
     return {"status": "ready" if rows else "insufficient_history", "folds": rows,
             "embargo": embargo, "strategy": asdict(spec), "backtest": asdict(config),
+            "diagnostic_label": label,
             "method": "参数及因子权重固定；训练/验证仅诊断；每折独立从初始资金开始，不自动选优。观察过测试收益后再改参数不构成新样本外证据。"}
 
 
@@ -91,10 +96,11 @@ def robustness(scores, market, spec, config, output: Path, progress=lambda messa
         settings = {"strategy": asdict(candidate), "backtest": asdict(costs)}
         (folder / "config.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
         try:
-            result = run_strategy(scores, market, candidate, costs)
+            result = run_strategy(scores, market, candidate, costs, progress=progress)
             for key, frame in {"equity": result.backtest.equity, "trades": result.backtest.trades,
                                "positions": result.backtest.positions, "targets": result.targets,
-                               "execution_issues": result.backtest.execution_issues}.items():
+                               "execution_issues": result.backtest.execution_issues,
+                               "selection_audit": result.selection_audit}.items():
                 frame.to_parquet(folder / f"{key}.parquet", index=False)
             rows.append({"case": name, "status": "ready", **result.metrics, **result.diagnostics})
         except ValueError as exc:

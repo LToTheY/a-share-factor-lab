@@ -20,8 +20,10 @@ from dashboard.views import (
     experiment_history,
     factor_library,
     factors,
+    manual_review,
     methodology,
     overview,
+    research_archive,
     strategy_lab,
     walk_forward,
 )
@@ -69,10 +71,12 @@ pages = {
     ],
     "3 · 策略实验": [
         st.Page(strategy_lab.render, title="策略实验室", icon="🛠️", url_path="strategy-lab"),
+        st.Page(manual_review.render, title="我的策略每日复核", icon="📋", url_path="manual-review"),
         st.Page(backtest.render, title="研究报告回测", icon="📈", url_path="backtest"),
         st.Page(walk_forward.render, title="研究报告样本外", icon="🧭", url_path="walk-forward"),
     ],
-    "4 · 实验历史": [st.Page(experiment_history.render, title="实验历史与比较", icon="🗃️", url_path="experiment-history")],
+    "4 · 实验历史": [st.Page(experiment_history.render, title="实验历史与比较", icon="🗃️", url_path="experiment-history"),
+                     st.Page(research_archive.render, title="批量研究档案", icon="📂", url_path="research-archive")],
     "5 · 教程": [st.Page(methodology.render, title="使用教程与45分钟课程", icon="📚", url_path="methodology")],
 }
 
@@ -83,5 +87,5 @@ with st.sidebar:
     st.divider()
     st.caption(f"报告目录\n\n`{st.session_state['report_dir']}`")
 
-navigation = st.navigation(pages, position="sidebar")
+navigation = st.navigation(pages, position="sidebar", expanded=True)
 navigation.run()

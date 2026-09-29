@@ -24,6 +24,50 @@ def add_forward_returns(
     return result.sort_values(["trade_date", "symbol"]).reset_index(drop=True)
 
 
+def add_execution_returns(frame: pd.DataFrame, periods: int = 5) -> pd.DataFrame:
+    """Next open to open h sessions later: a tradable-timing research label.
+
+    This is a frictionless label, not a claim that each order can fill. Segment
+    boundaries and missing adjusted opens stay missing rather than bridged.
+    """
+    require_columns(frame, ["trade_date", "symbol", "adj_open"])
+    if not isinstance(periods, int) or periods <= 0:
+        raise ValueError("periods must be a positive integer")
+    work = frame.sort_values(["symbol", "trade_date"]).copy()
+    groups = ["symbol", "research_segment"] if "research_segment" in work else ["symbol"]
+    prices = work.groupby(groups, sort=False)["adj_open"]
+    entry, exit_price = prices.shift(-1), prices.shift(-(periods + 1))
+    work[f"next_open_return_{periods}d"] = (exit_price / entry - 1).where(entry.gt(0) & exit_price.gt(0))
+    return work.sort_values(["trade_date", "symbol"]).reset_index(drop=True)
+
+
+def hac_mean_summary(values: pd.Series, lags: int = 4) -> dict[str, float | int]:
+    """Bartlett/Newey-West mean uncertainty, preserving missing session slots.
+
+    Normal-approximation intervals are descriptive and unadjusted for testing
+    many factors. Lags must cover at least the label-overlap horizon minus one.
+    """
+    if not isinstance(lags, int) or lags < 0:
+        raise ValueError("lags must be a nonnegative integer")
+    array = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    valid = np.isfinite(array)
+    count = int(valid.sum())
+    output = {"hac_mean": np.nan, "hac_se": np.nan, "hac_t": np.nan,
+              "hac_ci_low": np.nan, "hac_ci_high": np.nan, "hac_lags": lags, "hac_observations": count}
+    if count < 2:
+        return output
+    mean = float(array[valid].mean())
+    residuals = np.where(valid, array - mean, 0.)
+    lag_count = min(lags, len(array) - 1)
+    variance_sum = float(residuals @ residuals)
+    for lag in range(1, lag_count + 1):
+        variance_sum += 2 * (1 - lag / (lag_count + 1)) * float(residuals[lag:] @ residuals[:-lag])
+    se = float(np.sqrt(max(0., variance_sum) / count**2 * count / (count - 1)))
+    output.update(hac_mean=mean, hac_se=se, hac_t=mean / se if se > 0 else np.nan,
+                  hac_ci_low=mean - 1.96*se, hac_ci_high=mean + 1.96*se, hac_lags=lag_count)
+    return output
+
+
 def information_coefficient(
     frame: pd.DataFrame,
     factor_col: str,
@@ -36,7 +80,8 @@ def information_coefficient(
 
     def correlation(group: pd.DataFrame) -> float:
         valid = group[[factor_col, return_col]].dropna()
-        if len(valid) < min_observations:
+        valid = valid.replace([np.inf, -np.inf], np.nan).dropna()
+        if len(valid) < min_observations or valid[factor_col].nunique() < 2 or valid[return_col].nunique() < 2:
             return np.nan
         left = valid[factor_col]
         right = valid[return_col]
@@ -62,14 +107,19 @@ def quantile_returns(
     groups: int = 5,
 ) -> pd.DataFrame:
     """Equal-weight future return by daily factor quantile."""
-    require_columns(frame, ["trade_date", factor_col, return_col])
+    require_columns(frame, ["trade_date", "symbol", factor_col, return_col])
     if groups < 2:
         raise ValueError("groups must be at least 2")
-    work = frame[["trade_date", "symbol", factor_col, return_col]].dropna().copy()
+    work = frame[["trade_date", "symbol", factor_col, return_col]].copy()
+    work[[factor_col, return_col]] = work[[factor_col, return_col]].replace([np.inf, -np.inf], np.nan)
+    # Membership is fixed using the signal-day score. Missing future labels may
+    # lower evaluation coverage, but must never move other stocks between groups.
+    work = work.dropna(subset=["trade_date", "symbol", factor_col])
+    work = work.sort_values(["trade_date", "symbol"], kind="stable")
 
     def assign(values: pd.Series) -> pd.Series:
         ranks = values.rank(method="first")
-        if len(ranks) < groups:
+        if len(ranks) < groups or values.nunique() < 2:
             return pd.Series(np.nan, index=values.index)
         return pd.qcut(ranks, groups, labels=False) + 1
 
@@ -79,6 +129,10 @@ def quantile_returns(
         .groupby(["trade_date", "quantile"], as_index=False)[return_col]
         .mean()
     )
+    counts = work.dropna(subset=["quantile"]).groupby(["trade_date", "quantile"])[return_col].agg(
+        assigned_count="size", observed_count="count").reset_index()
+    result = result.merge(counts, on=["trade_date", "quantile"], validate="one_to_one")
+    result["label_coverage"] = result["observed_count"] / result["assigned_count"]
     result["quantile"] = result["quantile"].astype(int)
     return result
 

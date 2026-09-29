@@ -14,7 +14,7 @@ import pandas as pd
 
 from quant_lab.dashboard.artifacts import ArtifactError
 
-TABLES = ("equity", "trades", "positions", "targets", "benchmark", "execution_issues")
+TABLES = ("equity", "trades", "positions", "targets", "benchmark", "execution_issues", "selection_audit")
 
 
 def frame_fingerprint(frame: pd.DataFrame) -> str:
@@ -46,6 +46,7 @@ class ExperimentStore:
             "targets": result.targets,
             "benchmark": result.benchmark,
             "execution_issues": result.backtest.execution_issues,
+            "selection_audit": result.selection_audit,
         }
         for key, frame in frames.items():
             frame.to_parquet(pending / f"{key}.parquet", index=False)
@@ -124,6 +125,8 @@ class ExperimentStore:
         if name not in TABLES:
             raise ArtifactError("未知实验数据表")
         try:
+            if name == "selection_audit" and not (self._path(identifier) / f"{name}.parquet").exists():
+                return pd.DataFrame()  # Historical snapshots predate selection auditing.
             return pd.read_parquet(self._path(identifier) / f"{name}.parquet")
         except (OSError, ValueError) as exc:
             raise ArtifactError(f"实验数据读取失败：{exc}") from exc

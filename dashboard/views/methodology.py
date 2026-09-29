@@ -10,7 +10,9 @@ from dashboard.context import PROJECT_ROOT, page_intro
 def render():
     page_intro("教程", "从运行项目到解释研究结论，每次完成一个约45分钟的小任务。")
     docs = PROJECT_ROOT / "docs"
-    entries = {"项目使用教程": docs / "USER_GUIDE.md", "小白学习路线": docs / "BEGINNER_COURSE.md", "数据使用与更新": docs / "DATA_USAGE.md", "自定义因子": docs / "CUSTOM_FACTORS.md", "成交模型与限制": docs / "EXECUTION_ASSUMPTIONS.md"}
+    entries = {"项目使用教程": docs / "USER_GUIDE.md", "小白学习路线": docs / "BEGINNER_COURSE.md",
+               "因子与策略研究方法": docs / "FACTOR_RESEARCH_METHOD.md", "自己的账户如何每日复核": docs / "MANUAL_REVIEW.md",
+               "数据使用与更新": docs / "DATA_USAGE.md", "自定义因子": docs / "CUSTOM_FACTORS.md", "成交模型与限制": docs / "EXECUTION_ASSUMPTIONS.md"}
     entries.update({"课程 · " + p.stem: p for p in sorted((docs / "factor_course").glob("*.md"))})
     entries.update({"参考 · " + p.stem: p for p in sorted(docs.glob("*.md")) if p not in entries.values() and p.name != "SESSION_HANDOFF.md"})
     requested = st.query_params.get("guide")

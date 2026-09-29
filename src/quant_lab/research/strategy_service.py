@@ -18,6 +18,7 @@ from quant_lab.research.service import (
     file_digest,
     local_path,
     run_research,
+    runtime_manifest,
 )
 from quant_lab.strategy.sandbox import StrategySpec, run_strategy
 from quant_lab.strategy.validation import robustness, walk_forward_strategy
@@ -37,7 +38,7 @@ def prepare_strategy_request(root: Path, payload: dict) -> dict:
         raise ValueError("行情与研究分数版本不匹配，请重建研究")
     StrategySpec(**payload["strategy"])
     BacktestConfig(**payload["backtest"])
-    payload.update(dataset=version, code_version=code_version(root), factor_version=factor_version(root),
+    payload.update(dataset=version, code_version=code_version(root), factor_version=factor_version(root), runtime=runtime_manifest(),
                    market_file=provenance["market_file"])
     return payload
 
@@ -64,7 +65,7 @@ def run_strategy_request(root: Path, payload: dict, output: Path, progress) -> N
     scores, market = data.load(list(spec.factor_weights), payload["start"], payload["end"],
                               allowed_factors=list(spec.factor_weights))
     progress("执行当前策略的下一交易日成交回测")
-    result = run_strategy(scores, market, spec, config)
+    result = run_strategy(scores, market, spec, config, progress=progress)
     validation = {"status": "not_requested", "message": "尚未进行样本外验证"}
     if payload.get("walk_forward", True):
         validation = walk_forward_strategy(scores, market, spec, config, output / "validation",
@@ -76,7 +77,8 @@ def run_strategy_request(root: Path, payload: dict, output: Path, progress) -> N
     if prepare_strategy_request(root, payload) != payload:
         raise ValueError("研究过程中版本已变化；未发布本次实验")
     provenance = {**source, "universe": payload["universe"], "request": payload,
-                  "code_version": payload["code_version"],
+                  "code_version": payload["code_version"], "runtime": payload["runtime"],
+                  "factor_runtime": source.get("runtime"),
                   "requested_start": payload["start"], "requested_end": payload["end"],
                   "market_fingerprint": frame_fingerprint(market), "score_fingerprint": frame_fingerprint(scores),
                   "hypothesis": payload.get("hypothesis", ""), "conclusion": payload.get("conclusion", ""),

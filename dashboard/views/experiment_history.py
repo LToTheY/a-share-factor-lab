@@ -37,6 +37,20 @@ def render():
     if not records:
         st.info("还没有保存的实验。到策略实验室运行一次回测，成功后会自动保存在本机。")
         return
+    all_count = len(records)
+    filters = st.columns(3)
+    keyword = filters[0].text_input("查找实验名称或假设", key="experiment_search").strip().lower()
+    provider_labels = {"全部来源": None, "真实历史数据": "csmar_baostock", "合成演示": "synthetic"}
+    provider = filters[1].selectbox("实验数据来源", list(provider_labels), key="experiment_provider")
+    pools = sorted({str(r["provenance"].get("universe", "未记录")) for r in records})
+    pool = filters[2].selectbox("筛选股票池", ["全部股票池", *pools], key="experiment_pool")
+    records = [r for r in records if (not keyword or keyword in (r["name"] + " " + str(r["provenance"].get("hypothesis", ""))).lower())
+               and (provider_labels[provider] is None or r["provenance"].get("provider") == provider_labels[provider])
+               and (pool == "全部股票池" or str(r["provenance"].get("universe", "未记录")) == pool)]
+    st.caption(f"显示 {len(records)} / {all_count} 个已保存实验；筛选只影响显示，不删除历史结果。")
+    if not records:
+        st.info("没有符合条件的实验，请清空关键词或调整筛选。")
+        return
     lookup = {record["id"]: record for record in records}
     st.dataframe(
         pd.DataFrame(
@@ -77,13 +91,43 @@ def render():
         st.warning("历史版本实验：数据或代码与当前环境不同（也可能旧记录未绑定版本）。结果可查看，重跑前需核对或重建研究。")
     if source.get("provider") == "synthetic":
         st.info("本实验使用合成数据，只验证流程，不代表真实收益。")
+    with st.expander("复现代码与运行环境"):
+        runtime = source.get("runtime")
+        if runtime:
+            st.json(runtime)
+            if source.get("factor_runtime") and source["factor_runtime"] != runtime:
+                st.caption("因子分数由另一套数值库环境生成，原记录如下；重跑时应分别核对。")
+                st.json(source["factor_runtime"])
+        else:
+            st.caption("这份历史实验没有记录运行库版本，不能补造当时的环境。")
+        from quant_lab.research.snapshots import snapshot_path, verify_snapshot
+        try:
+            path = snapshot_path(PROJECT_ROOT, source.get("code_version", ""))
+            if path.is_file():
+                manifest = verify_snapshot(path, source["code_version"])
+                st.caption(f"已核验{len(manifest['files'])}份计算源码。配置另行导出；快照不含行情和账户。恢复时使用独立目录，避免覆盖当前项目。")
+                st.download_button("下载该计算版本源码", path.read_bytes(), file_name=path.name, mime="application/zip", key="source_"+first)
+            else:
+                st.caption("此历史版本没有保存源码快照；仅有指纹不等于可以完整恢复。")
+        except (ValueError, OSError) as exc:
+            st.caption(f"此实验的源码快照不可用：{exc}")
     request = metadata["provenance"].get("request")
     if request and st.button("载入此实验参数到策略实验室"):
-        st.session_state["reload_strategy"] = request
-        st.session_state["report_dir"] = str(PROJECT_ROOT / request["report"])
-        st.success("已载入。进入策略实验室检查参数，然后运行新实验。")
+        from quant_lab.research.manual_review import resolve_report
+        try:
+            resolved = resolve_report(PROJECT_ROOT, source)
+            request = {**request, "report": str(resolved.relative_to(PROJECT_ROOT))}
+            st.session_state["reload_strategy"] = request
+            st.session_state["report_dir"] = str(resolved)
+            st.success("已载入匹配的研究快照。进入策略实验室检查参数，然后运行新实验。")
+        except (ValueError, OSError) as exc:
+            st.error(f"无法重开参数：{exc}。历史结果仍可查看。")
     st.write("研究假设：", metadata["provenance"].get("hypothesis", "旧实验未记录"))
-    notes = storage.notes(first)
+    try:
+        notes = storage.notes(first)
+    except (ValueError, OSError) as exc:
+        st.warning(f"结论文件不可读，原文件保留：{exc}")
+        notes = {}
     conclusion = st.text_area("研究结论与失败复盘", notes.get("conclusion", metadata["provenance"].get("conclusion", "")), key="conclusion_" + first)
     if st.button("保存结论", key="save_conclusion_" + first):
         storage.save_notes(first, conclusion)
@@ -98,11 +142,16 @@ def render():
         st.subheader("全部单因素对照（未按收益择优）")
         st.dataframe(metadata["provenance"]["robustness"], hide_index=True)
     diagnostics = metadata.get("diagnostics", {})
+    if diagnostics.get("stale_valuation_events", 0):
+        st.warning(f"有 {diagnostics['stale_valuation_events']} 条持仓估值沿用了上次有效价格。退市或长期缺行情可能使曲线失真，请在逐日回放核对后再评价收益。")
+    if diagnostics.get("corporate_action_events", 0):
+        st.warning(f"持仓期间检测到 {diagnostics['corporate_action_events']} 次除权息参考价变化。当前现金/股份账本尚未完整入账相关事件，收益、回撤与对照均包含误差；详见逐日回放。")
     cards = st.columns(4)
     cards[0].metric("平均实际持股数", f"{diagnostics.get('average_holdings', 0):.2f}")
     cards[1].metric("平均现金闲置", f"{diagnostics.get('average_cash_ratio', 0):.1%}")
     cards[2].metric("费用 / 初始资金", f"{diagnostics.get('cost_to_initial_cash', 0):.1%}")
     cards[3].metric("未成交事件", diagnostics.get("unfilled_events", 0))
+    st.caption("实际持仓可能少于目标；若旧仓卖出受阻，也可能暂时多于Top N。现金闲置、持仓数与费用须结合成交记录解释。")
     report = f"# {metadata['name']}\n\n假设：{metadata['provenance'].get('hypothesis', '')}\n\n结论：{conclusion}\n\n```json\n{json.dumps(metadata, ensure_ascii=False, indent=2)}\n```\n\n分红送转账本近似，历史回测不代表未来收益。"
     st.download_button("导出实验报告", report, file_name=f"experiment_{first}.md", mime="text/markdown")
     conditions(metadata)
@@ -166,6 +215,8 @@ def render():
                 st.warning(
                     "样本区间或输入数据指纹不同；指标仅供核对，不能把差异直接归因于策略参数。"
                 )
+            if metadata["provenance"].get("code_version") != other["provenance"].get("code_version"):
+                st.warning("两个实验使用的计算代码版本不同，收益差异也可能来自成交模型或计算逻辑变化。")
             if comparable:
                 curves = []
                 for identifier, data in (
@@ -188,6 +239,12 @@ def render():
             )
             st.plotly_chart(px.line(curve, x="trade_date", y="净值"), width="stretch")
         st.plotly_chart(drawdown_figure(equity), width="stretch")
+        audit = storage.table(first, "selection_audit")
+        if not audit.empty:
+            with st.expander("为什么选中或跳过某只股票"):
+                audit_dates = sorted(pd.to_datetime(audit.trade_date).unique(), reverse=True)
+                audit_date = st.selectbox("选股信号日", audit_dates, format_func=lambda d: pd.Timestamp(d).strftime("%Y-%m-%d"), key="selection_date_"+first)
+                st.dataframe(audit[pd.to_datetime(audit.trade_date).eq(audit_date)], hide_index=True, width="stretch")
         ledger(
             equity,
             storage.table(first, "targets"),

@@ -53,6 +53,16 @@ def test_path_cannot_escape_report_root(tmp_path):
         store.exists("../secret.txt")
 
 
+def test_corrupt_files_raise_user_facing_artifact_errors(tmp_path):
+    (tmp_path / "summary.json").write_text("{broken", encoding="utf-8")
+    (tmp_path / "equity.csv").write_text("", encoding="utf-8")
+    store = ArtifactStore(tmp_path)
+    with pytest.raises(ArtifactError, match="JSON研究文件"):
+        store.json("summary.json")
+    with pytest.raises(ArtifactError, match="CSV研究文件"):
+        store.csv("equity.csv")
+
+
 def test_factor_snapshot_reads_only_latest_date_and_selected_factor(tmp_path):
     _write_csv(
         tmp_path / "factor_summary.csv",

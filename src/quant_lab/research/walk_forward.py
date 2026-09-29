@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from quant_lab.backtest.engine import BacktestConfig, run_backtest
+from quant_lab.backtest.engine import BacktestConfig
 from quant_lab.backtest.metrics import (
     equal_weight_benchmark,
     performance_metrics,
@@ -16,8 +16,8 @@ from quant_lab.backtest.metrics import (
 )
 from quant_lab.evaluation.diagnostics import information_coefficient, summarize_ic
 from quant_lab.evaluation.preprocess import zscore
-from quant_lab.portfolio.weights import buffered_top_n_weights
 from quant_lab.research.settings import ResearchSettings
+from quant_lab.strategy.sandbox import StrategySpec, run_strategy
 
 
 def _drop_last_dates(frame: pd.DataFrame, count: int) -> pd.DataFrame:
@@ -54,7 +54,10 @@ def run_walk_forward(
     step_years = int(config.get("step_years", test_years))
     if min(train_years, validation_years, test_years, step_years) < 1:
         raise ValueError("All walk-forward window lengths must be positive")
-    embargo = max(settings.forward_periods, int(config.get("embargo_trading_days", settings.forward_periods)))
+    if step_years != test_years:
+        raise ValueError("Continuous walk-forward requires step_years == test_years; overlapping or missing test windows are not supported")
+    label_span = settings.forward_periods + int(label_col.startswith("next_open_return_"))
+    embargo = max(label_span, int(config.get("embargo_trading_days", label_span)))
     work = scores.copy()
     work["trade_date"] = pd.to_datetime(work["trade_date"])
     first_year = pd.Timestamp(
@@ -100,6 +103,10 @@ def run_walk_forward(
             and validation_ic > 0
         ]
         if not selected:
+            test["factor_processed"] = float("nan")
+            test["force_cash"] = True
+            test["walk_forward_fold"] = test_year
+            predictions.append(test)
             fold_rows.append(
                 {
                     "test_year": test_year,
@@ -129,6 +136,7 @@ def run_walk_forward(
             "factor_processed"
         ].transform(zscore)
         test["walk_forward_fold"] = test_year
+        test["force_cash"] = False
         predictions.append(test)
         test_ic = information_coefficient(test, "factor_processed", label_col)
         fold_rows.append(
@@ -156,17 +164,20 @@ def run_walk_forward(
         ["trade_date", "symbol"]
     )
     oos_ic = information_coefficient(oos, "factor_processed", label_col)
-    targets = buffered_top_n_weights(
-        oos,
-        top_n=settings.top_n,
-        exit_rank=settings.exit_rank,
-        frequency=settings.rebalance_frequency,
-        max_weight=settings.max_weight,
-        next_trading_date=next_trading_date,
-    )
     start = oos["trade_date"].min()
-    oos_market = market[pd.to_datetime(market["trade_date"]) >= start]
-    result = run_backtest(oos_market, targets, BacktestConfig(**settings.backtest))
+    oos_market = market[pd.to_datetime(market["trade_date"]) >= start].copy()
+    if "in_index" not in oos_market:
+        oos_market["in_index"] = oos_market.get("in_universe", True)
+    if "adj_close" not in oos_market:
+        oos_market["adj_close"] = oos_market.close
+    if "in_universe" not in oos:
+        oos["in_universe"] = True
+    inputs = oos.rename(columns={"factor_processed": "_oos_signal"})
+    spec = StrategySpec({"_oos_signal": 1.}, top_n=settings.top_n, exit_rank=settings.exit_rank,
+                        rebalance_frequency=settings.rebalance_frequency, max_weight=settings.max_weight,
+                        minimum_factor_coverage=1.)
+    strategy_result = run_strategy(inputs, oos_market, spec, BacktestConfig(**settings.backtest), next_trading_date=next_trading_date)
+    result, targets = strategy_result.backtest, strategy_result.targets
     portfolio = performance_metrics(result.equity)
     portfolio["turnover"] = turnover_from_trades(result.trades, result.equity)
     benchmark_market = market.copy()
@@ -198,6 +209,8 @@ def run_walk_forward(
             portfolio["annual_return"] - benchmark_metrics["annual_return"]
         ),
         "embargo_trading_days": embargo,
+        "empty_selection_policy": "没有因子通过训练与验证筛选时，在下一次计划调仓转为空仓；受实际成交限制约束",
+        "partial_last_test_year": pd.Timestamp(oos.trade_date.max()).month < 12,
     }
     oos.to_parquet(output / "oos_scores.parquet", index=False)
     oos_ic.rename_axis("trade_date").reset_index().to_csv(
@@ -206,6 +219,8 @@ def run_walk_forward(
     targets.to_csv(output / "target_weights.csv", index=False)
     result.equity.to_csv(output / "equity.csv", index=False)
     result.trades.to_csv(output / "trades.csv", index=False)
+    result.positions.to_parquet(output / "positions.parquet", index=False)
+    result.execution_issues.to_csv(output / "execution_issues.csv", index=False)
     benchmark.to_csv(output / "benchmark_equity.csv", index=False)
     (output / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=True),

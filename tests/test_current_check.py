@@ -20,9 +20,37 @@ from quant_lab.research.settings import load_research_settings
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def isolate_mock_network_tests_from_machine_free_space(monkeypatch):
+    from quant_lab.data.storage_budget import StorageBudget
+
+    monkeypatch.setattr("quant_lab.research.current_check.StorageBudget",
+                        lambda root, **kwargs: StorageBudget(root, minimum_free_bytes=0))
+
+
 def calendar():
     dates = pd.date_range("2025-01-01", "2025-02-10")
     return pd.DataFrame({"trade_date": dates, "is_trading_day": (dates.dayofweek < 5) & ~dates.isin(pd.date_range("2025-01-28", "2025-02-04"))})
+
+
+def test_low_space_replaces_stale_success_without_connecting(tmp_path, monkeypatch):
+    from quant_lab.data.storage_budget import StorageBudget
+
+    monkeypatch.setattr("quant_lab.research.current_check.StorageBudget",
+                        lambda root, **kwargs: StorageBudget(root, minimum_free_bytes=2000))
+    monkeypatch.setattr("quant_lab.data.storage_budget.shutil.disk_usage", lambda _: SimpleNamespace(free=1000))
+    path = tmp_path / "data/state/current_check.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"status":"ready","audit_passed":true}', encoding="utf-8")
+
+    def forbidden_connection():
+        pytest.fail("No network client should be constructed when the reserve fails")
+
+    result = run_current_check(tmp_path, ROOT / "configs/research.yaml", client_factory=forbidden_connection)
+    assert result["status"] == "blocked" and not result["audit_passed"]
+    assert json.loads(path.read_text(encoding="utf-8"))["status"] == "blocked"
+    orders = pd.read_csv(tmp_path / "reports/generated/current_check/next_day_orders.csv")
+    assert orders.status.iloc[0] == "DATA_NOT_READY"
 
 
 def test_target_respects_shanghai_time_and_holidays_and_rejects_expired_calendar():
@@ -67,6 +95,24 @@ def test_latest_day_alone_and_unknown_status_cannot_pass():
     assert not audit["passed"]
     assert audit["window_gaps"][0]["missing_sessions"] == 120
     assert audit["unknown_status_symbols"] == ["000001.SZ"]
+
+
+def test_nullable_status_is_unknown_not_implicitly_true():
+    dates = pd.bdate_range("2025-01-02", periods=5)
+    market = raw_prices(dates).assign(adj_close=10., limit_status_known=True)
+    market["limit_status_known"] = market.limit_status_known.astype("boolean")
+    market.loc[4, "limit_status_known"] = pd.NA
+    result = validate_latest_panel(market, dates[-1], {"000001.SZ"}, dates, lookback=5)
+    assert not result["passed"]
+    assert result["unknown_status_symbols"] == ["000001.SZ"]
+
+
+def test_short_calendar_cannot_shorten_required_factor_window():
+    dates = pd.bdate_range("2025-01-02", periods=5)
+    market = raw_prices(dates).assign(adj_close=10., limit_status_known=True)
+    result = validate_latest_panel(market, dates[-1], {"000001.SZ"}, dates, lookback=121)
+    assert not result["passed"]
+    assert any("交易日历" in message for message in result["errors"])
 
 
 def test_explicit_suspension_with_existing_close_and_empty_activity_is_not_a_download_gap():

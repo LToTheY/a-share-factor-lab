@@ -18,6 +18,7 @@ from quant_lab.research.service import (
     local_path,
     run_research,
 )
+from quant_lab.research.snapshots import snapshot_source
 
 
 def main():
@@ -35,6 +36,7 @@ def main():
     destination = local_path(ROOT, args.output or ("reports/generated/demo" if args.demo else config["project"]["output_dir"]), area="reports")
     candidate = destination.with_name(".pending-" + uuid4().hex)
     with data_lock(ROOT / "data/state/jobs/heavy.lock"), data_lock(ROOT / "data/state/market_download.lock"):
+        snapshot_source(ROOT, request.code_version)
         summary = run_research(ROOT, request, candidate, print)
         if destination.exists():
             archive = ROOT / "reports/archive" / (destination.name + "_" + uuid4().hex)

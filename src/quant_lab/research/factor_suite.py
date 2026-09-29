@@ -10,14 +10,17 @@ from typing import Any
 
 import pandas as pd
 
-from quant_lab.backtest.engine import BacktestConfig, run_backtest
+from quant_lab.backtest.engine import BacktestConfig
 from quant_lab.backtest.metrics import (
     equal_weight_benchmark,
     performance_metrics,
     turnover_from_trades,
 )
 from quant_lab.evaluation.diagnostics import (
+    add_execution_returns,
     add_forward_returns,
+    annual_ic_summary,
+    hac_mean_summary,
     information_coefficient,
     quantile_returns,
     summarize_ic,
@@ -25,10 +28,10 @@ from quant_lab.evaluation.diagnostics import (
 from quant_lab.evaluation.preprocess import preprocess_factor, zscore
 from quant_lab.evaluation.stability import factor_stability_table
 from quant_lab.factors.library import compute_factor
-from quant_lab.portfolio.weights import buffered_top_n_weights
 from quant_lab.reporting import markdown_table, write_line_svg
 from quant_lab.research.settings import ResearchSettings
 from quant_lab.research.walk_forward import run_walk_forward
+from quant_lab.strategy.sandbox import StrategySpec, run_strategy
 from quant_lab.universe.filters import UniverseConfig, apply_universe
 
 
@@ -46,6 +49,8 @@ def _prepare_market(market: pd.DataFrame, settings: ResearchSettings) -> pd.Data
     )
     if "adj_close" not in result:
         result["adj_close"] = result["close"] * result.get("adj_factor", 1.0)
+    if "adj_open" not in result and "open" in result:
+        result["adj_open"] = result["open"] * result["adj_close"] / result["close"].where(result["close"].gt(0))
     return result
 
 
@@ -74,6 +79,9 @@ def run_factor_suite(
         prepared, settings.forward_periods, price_col="adj_close"
     )[["trade_date", "symbol", f"forward_return_{settings.forward_periods}d"]]
     label_col = f"forward_return_{settings.forward_periods}d"
+    execution_col = f"next_open_return_{settings.forward_periods}d"
+    execution_labels = add_execution_returns(prepared, settings.forward_periods)[["trade_date", "symbol", execution_col]]
+    labels = labels.merge(execution_labels, on=["trade_date", "symbol"], validate="one_to_one")
     keys = prepared[["trade_date", "symbol"]].copy()
     score_table = keys.copy()
     summaries = []
@@ -147,6 +155,10 @@ def run_factor_suite(
             min_observations=10,
         )
         ic_summary = summarize_ic(ic, periods_per_year=252 / settings.forward_periods)
+        execution_ic = information_coefficient(evaluation_factor, "factor_processed", execution_col)
+        execution_summary = hac_mean_summary(execution_ic, lags=max(settings.forward_periods - 1, 4))
+        execution_ic.rename_axis("trade_date").reset_index().to_csv(output / f"execution_ic_{definition.name}.csv", index=False)
+        annual_ic_summary(execution_ic).to_csv(output / f"annual_ic_{definition.name}.csv", index=False)
         groups = quantile_returns(
             evaluation_factor,
             "factor_processed",
@@ -167,6 +179,11 @@ def run_factor_suite(
                 **ic_summary,
                 "oriented_mean_ic": ic_summary["mean_ic"] * definition.direction,
                 "top_minus_bottom_5d": spread,
+                "forward_periods": settings.forward_periods,
+                "top_minus_bottom": spread,
+                "next_open_mean_ic": float(execution_ic.mean()),
+                "next_open_oriented_ic": float(execution_ic.mean()) * definition.direction,
+                **execution_summary,
                 "observations": int(ic.count()),
             }
         )
@@ -199,17 +216,18 @@ def run_factor_suite(
         score_table, "factor_processed", label_col, min_observations=10
     )
 
-    targets = buffered_top_n_weights(
-        score_table,
-        top_n=settings.top_n,
-        exit_rank=settings.exit_rank,
-        frequency=settings.rebalance_frequency,
-        max_weight=settings.max_weight,
-        next_trading_date=next_trading_date,
-    )
     backtest_config = BacktestConfig(**settings.backtest)
     backtest_market = prepared[prepared["trade_date"] >= research_start]
-    result = run_backtest(backtest_market, targets, backtest_config)
+    if "in_index" not in backtest_market:
+        backtest_market = backtest_market.assign(in_index=backtest_market.in_universe)
+    spec = StrategySpec({name: 1.0 for name in score_names}, top_n=settings.top_n,
+                        exit_rank=settings.exit_rank, rebalance_frequency=settings.rebalance_frequency,
+                        max_weight=settings.max_weight,
+                        minimum_factor_coverage=settings.minimum_valid_factors / len(score_names))
+    strategy_result = run_strategy(score_table[score_table.trade_date >= research_start], backtest_market,
+                                   spec, backtest_config, progress=progress, next_trading_date=next_trading_date)
+    result, targets = strategy_result.backtest, strategy_result.targets
+    strategy_result.selection_audit.to_parquet(output / "selection_audit.parquet", index=False)
     portfolio = performance_metrics(result.equity)
     portfolio["turnover"] = turnover_from_trades(result.trades, result.equity)
     benchmark_eligibility = "in_index" if "in_index" in prepared else "in_universe"
@@ -230,8 +248,9 @@ def run_factor_suite(
     latest = latest.sort_values("factor_rank")
 
     factor_summary = pd.DataFrame(summaries)
-    factor_corr = _factor_correlation(score_table, score_names)
+    factor_corr = _factor_correlation(score_table[score_table.trade_date >= research_start], score_names)
     factor_coverage = pd.DataFrame(coverage_rows)
+    factor_coverage = factor_coverage[factor_coverage.trade_date >= research_start]
     factor_summary.to_csv(
         output / "factor_summary.csv", index=False, encoding="utf-8-sig"
     )
@@ -264,7 +283,7 @@ def run_factor_suite(
         score_table,
         prepared,
         score_names,
-        label_col,
+        execution_col,
         settings,
         output / "walk_forward",
         next_trading_date=next_trading_date,
@@ -276,6 +295,8 @@ def run_factor_suite(
         "research_settings": asdict(settings),
         "backtest_config": asdict(backtest_config),
         "execution_timing": "收盘后信号，下一交易日开盘成交",
+        "diagnostic_labels": {"close": label_col, "execution": execution_col,
+                              "description": "同时保留收盘到收盘和次日开盘进入、持有h期后开盘退出的无成本标签；HAC区间未校正多重检验"},
         "data_source": market.attrs.get("provider", "external"),
         "dataset_id": market.attrs.get("dataset_id"),
         "start_date": str(pd.Timestamp(market["trade_date"].min()).date()),
@@ -294,6 +315,7 @@ def run_factor_suite(
             composite_ic, periods_per_year=252 / settings.forward_periods
         ),
         "portfolio": portfolio,
+        "execution_diagnostics": strategy_result.diagnostics,
         "benchmark": {
             **benchmark_metrics,
             "definition": (

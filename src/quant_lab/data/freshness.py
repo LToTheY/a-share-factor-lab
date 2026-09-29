@@ -27,6 +27,9 @@ def validate_latest_panel(
 ) -> dict:
     """A latest-day island cannot pass when factor-window sessions are missing."""
     errors = []
+    if isinstance(lookback, bool) or not isinstance(lookback, int) or lookback <= 0:
+        raise ValueError("因子观察窗口必须为正整数")
+    sessions = pd.DatetimeIndex(sessions).dropna().unique().sort_values()
     if not required_symbols:
         errors.append("股票池为空")
     if market.duplicated(["trade_date", "symbol"]).any():
@@ -36,6 +39,8 @@ def validate_latest_panel(
     if missing:
         errors.append(f"最新交易日缺少{len(missing)}只股票")
     window = sessions[sessions <= target][-lookback:]
+    if len(window) < lookback or target not in sessions:
+        errors.append(f"交易日历不足以覆盖完整的 {lookback} 日因子观察窗口")
     gaps = []
     bad_latest = []
     for symbol in sorted(required_symbols):
@@ -63,7 +68,7 @@ def validate_latest_panel(
             gaps.append({"symbol": symbol, "missing_sessions": len(absent), "invalid_rows": int(broken.sum())})
         day = rows.loc[rows["trade_date"].eq(target)]
         flags = ["is_st_known", "is_suspended_known", "limit_status_known"]
-        if not day.empty and (any(c not in day for c in flags) or not day[flags].all(axis=None)):
+        if not day.empty and (any(c not in day for c in flags) or not day[flags].fillna(False).eq(True).all(axis=None)):
             bad_latest.append(symbol)
     if gaps:
         errors.append(f"{len(gaps)}只股票的因子观察窗口存在行情缺口或异常")

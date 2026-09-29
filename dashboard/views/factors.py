@@ -22,7 +22,10 @@ FACTOR_NOTES = {
     "amihud_20": "价格变动相对成交额的冲击，数值较大通常表示流动性较弱。",
     "turnover_mean_20": "最近 20 日平均换手率。",
     "amount_momentum_20": "最近成交额相对过去水平的变化。",
-    "price_volume_corr_20": "最近 20 日价格变化与成交量变化的相关性。",
+    "price_volume_corr_20": "最近20日收益与成交额对数变化的相关性。",
+    "downside_volatility_20": "近20日下跌收益平方的平均值再开方；负方向偏好下行波动较小的股票。",
+    "overnight_reversal_5": "近5日隔夜开盘缺口的均值取负；假设隔夜涨跌可能反转，仍需验证。",
+    "intraday_momentum_20": "用日线开收盘价计算近20日盘内收益均值；不需要分钟数据。",
 }
 
 
@@ -51,18 +54,38 @@ def render() -> None:
             label_cols = [c for c in quantiles if c.startswith("forward_return_")]
             if label_cols:
                 st.dataframe(quantiles.groupby("quantile")[label_cols].mean().reset_index(), hide_index=True)
+                if "label_coverage" in quantiles:
+                    st.caption("未来标签覆盖率低时，组均值只代表有后续价格的子样本。分组使用信号日排名固定，未完成的未来收益保持缺失。")
+                    st.dataframe(quantiles.groupby("quantile")[["assigned_count", "observed_count", "label_coverage"]].mean().reset_index(), hide_index=True)
+                preference = "较低组" if row.get("configured_direction", 1) < 0 else "较高组"
+                st.caption(f"组编号按原始因子处理分数从低到高排列，尚未乘配置方向；当前方向偏好{preference}。标签使用收盘到收盘收益，不是已扣费用的多空账户。")
     st.markdown(f"**直观含义：** {FACTOR_NOTES.get(factor, '请结合因子库源码确认定义。')}")
 
     cols = st.columns(6)
     cols[0].metric("原始 Mean IC", number(row.get("mean_ic"), 4))
     cols[1].metric("配置方向", "+1" if row.get("configured_direction", 1) > 0 else "-1")
     cols[2].metric("方向调整后 IC", number(row.get("oriented_mean_ic"), 4))
-    cols[3].metric("ICIR", number(row.get("icir"), 2))
-    cols[4].metric("IC 胜率", pct(row.get("win_rate")))
+    cols[3].metric("原始 ICIR", number(row.get("icir"), 2))
+    cols[4].metric("原始 IC > 0 比例", pct(row.get("win_rate")))
     cols[5].metric("有效日数", number(row.get("observations"), 0))
+    if "next_open_mean_ic" in row:
+        st.subheader("按可交易时点检验")
+        checks = st.columns(3)
+        checks[0].metric("次日开盘标签 IC", number(row.get("next_open_mean_ic"), 4))
+        checks[1].metric("方向调整后 IC", number(row.get("next_open_oriented_ic"), 4))
+        checks[2].metric("原始 IC 的 HAC t 值", number(row.get("hac_t"), 2))
+        st.caption(f"信号在收盘后形成；标签从次日开盘持有 {int(row.get('forward_periods', 5))} 个交易日后开盘退出，尚未扣成本。原始IC均值95%近似区间 [{row.get('hac_ci_low', float('nan')):.4f}, {row.get('hac_ci_high', float('nan')):.4f}]；HAC处理序列相关，不校正多重试验，也不证明可交易盈利。方向为-1时，研究假设通常对应原始IC为负。")
+        if artifacts.exists(f"annual_ic_{factor}.csv"):
+            st.caption("逐年原始IC使用次日开盘标签；当年未结束或样本缺失时，days会少于完整交易年。")
+            st.dataframe(artifacts.csv(f"annual_ic_{factor}.csv"), hide_index=True)
 
     try:
-        ic = artifacts.factor_ic(factor).dropna(subset=["trade_date", "rank_ic"])
+        if artifacts.exists(f"execution_ic_{factor}.csv"):
+            timing = st.radio("IC曲线口径", ["次日开盘到后续开盘", "当日收盘到后续收盘"], horizontal=True)
+            ic = artifacts.csv(f"execution_ic_{factor}.csv") if timing.startswith("次日") else artifacts.factor_ic(factor)
+        else:
+            ic = artifacts.factor_ic(factor)
+        ic = ic.dropna(subset=["trade_date", "rank_ic"])
         ic["累计 IC"] = ic["rank_ic"].cumsum()
         left, right = st.columns(2)
         left.plotly_chart(
@@ -78,6 +101,7 @@ def render() -> None:
 
     try:
         stability = artifacts.csv("factor_stability.csv")
+        st.caption("以下历史窗口表使用方向调整后的分数和收盘标签，与上方原始IC、次日开盘逐年表分别核对。")
         selected = stability.loc[stability["factor"] == factor].copy()
         figure = px.bar(
             selected,

@@ -21,6 +21,9 @@ CSMAR原始价 + BaoStock补缺 → 统一复权与数据审计 → 时点股票
 - [项目使用教程](docs/USER_GUIDE.md)：安装、无账号合成演示、更新、运行、重开、比较与导出。
 - [45分钟小白课程](docs/BEGINNER_COURSE.md)：从自定义价量因子到完整实验。
 - [成交假设与限制](docs/EXECUTION_ASSUMPTIONS.md)：小资金、板块最低申报量和公司行动近似。
+- [因子与策略研究方法](docs/FACTOR_RESEARCH_METHOD.md)：研究模块、次日开盘标签、IC不确定性和预算筛选。
+- [自己的策略每日复核](docs/MANUAL_REVIEW.md)：复用已保存策略，填写本机账户快照，联网更新后导出人工清单。
+- [项目状态](docs/PROJECT_STATUS.md)与[技术讲述自测](docs/INTERVIEW_WALKTHROUGH.md)：已验收能力、保留限制和能否独立解释核心模块。
 
 
 **当前数据怎么用：[docs/DATA_USAGE.md](docs/DATA_USAGE.md)**。包含数据位置、来源优先级、
@@ -65,6 +68,9 @@ CSMAR原始下载已完成：508个分区，Parquet约388 MB，实际日行情�
 .\scripts\run_dashboard.ps1
 ```
 
+已有虚拟环境的 Windows 用户也可双击项目根目录 `start_dashboard.cmd`。
+它只启动本机网页；首次安装、数据更新和研究由教程与网页入口分别处理。
+
 看板提供日频、日内和其他频率的因子档案入口，支持本地保存、编辑、搜索及导出。
 日频已有因子诊断；日内和其他频率当前支持建档，尚未接入计算与回测。
 看板同时展示数据状态、策略实验、回测和Walk-forward样本外结果，不会修改模拟账户或发送交易指令。
@@ -74,7 +80,8 @@ CSMAR原始下载已完成：508个分区，Parquet约388 MB，实际日行情�
 - BaoStock免费真实日线自2015年起的一次性建库和逐日增量更新。
 - 历史时点中证500成分快照，避免把今天的成分股机械回填到过去。
 - 不复权成交价格与后复权研究价格双轨存储。
-- 11个普通价量因子的批量评价、相关性和等权综合分。
+- 默认11个价量因子的批量评价、相关性和综合分；另有下行波动、隔夜反转与盘内动量候选。
+- 因子等权、模块等权或自定义权重；预算筛选可负担候选，展示实际成交与现金闲置。
 - 配置驱动的日频/周频切换、Top 20与Rank 30换手缓冲。
 - 最新因子排名、模拟账户和下一交易日人工复核清单。
 - Tushare保留为可选付费/交叉验证数据源。
@@ -82,7 +89,7 @@ CSMAR原始下载已完成：508个分区，Parquet约388 MB，实际日行情�
 - 历史上市天数、ST、停牌和最低成交额股票池过滤接口。
 - 动量、短期反转、Amihud、波动率、特质波动率、BP、EP因子。
 - MAD去极值、截面标准化、行业/市值中性化。
-- 未来收益、RankIC、ICIR、胜率和分层收益。
+- 收盘及次日开盘标签、RankIC、ICIR、HAC不确定性、年度表现与含标签覆盖率的分层收益。
 - 周频Top-N目标权重。
 - 下一交易日开盘执行、现金/持仓账本、滑点、佣金、印花税、最低佣金、
   整数手、停牌及涨跌停限制。
@@ -90,7 +97,7 @@ CSMAR原始下载已完成：508个分区，Parquet约388 MB，实际日行情�
 - 训练集拟合缺失值与标准化参数的NumPy Ridge基线。
 - 可选LightGBM和PyTorch MLP适配器。
 - Qlib Alpha158 + LightGBM示例配置。
-- 标准库测试、端到端烟雾测试和GitHub Actions持续集成。
+- pytest回归测试、网页完整流程验收和Windows/Linux GitHub Actions持续集成。
 
 ## 重要边界
 
@@ -205,7 +212,7 @@ python scripts\download_tushare.py --start 20250101 --end 20250131
 1. 第`t`日收盘后计算因子。
 2. 目标权重记录在第`t`日。
 3. 回测严格在下一交易日开盘执行。
-4. 因子标签是`t`收盘至`t+N`收盘收益，只用于研究评价和训练。
+4. 因子同时报告`t`收盘至`t+N`收盘、`t+1`开盘至`t+N+1`开盘两种标签，只用于研究评价和训练。
 5. 涨停禁止买，跌停禁止卖，停牌双向禁止；失败持仓继续保留。
 
 如果你改成开盘信号、VWAP或收盘成交，必须同步修改标签、数据可见时间和测试。
@@ -218,7 +225,7 @@ python scripts\download_tushare.py --start 20250101 --end 20250131
 def my_factor(frame: pd.DataFrame) -> pd.Series:
     # rolling/shift必须先按symbol分组，防止股票之间串数据。
     # 因子收益使用后复权价；原始close只用于模拟成交、股数与费用。
-    returns = frame.groupby("symbol", sort=False)["adj_close"].pct_change()
+    returns = frame.groupby("symbol", sort=False)["adj_close"].pct_change(fill_method=None)
     return (
         returns.groupby(frame["symbol"], sort=False)
         .rolling(20, min_periods=15)
@@ -285,8 +292,8 @@ python scripts\run_tests.py
 安装开发依赖后也可以：
 
 ```powershell
-pytest
-ruff check .
+python -m pytest --basetemp data/interim/pytest-local
+python -m ruff check .
 ```
 
 任何影响信号时点、成交、费用或数据分组的修改都必须先加测试。

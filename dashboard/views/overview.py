@@ -2,17 +2,45 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+
 import pandas as pd
 import streamlit as st
 
 from dashboard.components import number, pct
-from dashboard.context import page_intro, store
+from dashboard.context import PROJECT_ROOT, page_intro, store
 from quant_lab.dashboard import ArtifactError
+
+
+@st.cache_data(ttl=60)
+def storage_usage():
+    sizes = {}
+    for area in ("data", "reports"):
+        total = 0
+        for folder, _, files in os.walk(PROJECT_ROOT / area):
+            for name in files:
+                try:
+                    total += (PROJECT_ROOT / folder / name).stat().st_size
+                except (FileNotFoundError, PermissionError):
+                    continue  # A worker may atomically publish/move a result meanwhile.
+        sizes[area] = total
+    sizes["free"] = shutil.disk_usage(PROJECT_ROOT).free
+    return sizes
 
 
 def render() -> None:
     page_intro("系统总览", "先确认数据是否新鲜、研究是否完整，再阅读任何收益指标。")
-    st.info("这里展示已保存的历史研究报告。查看本次是否需要调仓，请进入“今日调仓检查”，先更新数据。")
+    st.info("这里展示已保存的历史研究报告。个人账户请进入“我的策略每日复核”，选实验、填现金和持仓、更新数据；“今日调仓检查”使用项目默认模拟账户。")
+    with st.expander("本机存储占用"):
+        sizes = storage_usage()
+        columns = st.columns(3)
+        columns[0].metric("数据、状态与实验", f"{sizes['data']/1e9:.2f} GB")
+        columns[1].metric("研究报告与归档", f"{sizes['reports']/1e9:.2f} GB")
+        columns[2].metric("磁盘剩余空间", f"{sizes['free']/1e9:.2f} GB")
+        st.caption("每分钟刷新；GB按十进制计算，不含虚拟环境。三个历史股票池共用行情，每次实验主要新增结果。原始数据、账户和历史研究应保留；先核对用途再清理。")
+        if sizes["free"] < 10e9:
+            st.warning("磁盘剩余不足10 GB，数据更新会触发预留空间限制；请先释放项目之外的可确认冗余文件。")
     artifacts = store()
     try:
         summary = artifacts.json("summary.json")

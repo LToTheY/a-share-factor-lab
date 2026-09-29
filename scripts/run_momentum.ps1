@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("synthetic", "real")]
     [string]$Mode = "real"
 )

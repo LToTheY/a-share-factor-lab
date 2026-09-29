@@ -38,14 +38,20 @@ DATE_COLUMNS = {"trade_date", "signal_date", "start_date", "end_date"}
 
 
 def _stamp(path: Path) -> tuple[str, int, int]:
-    stat = path.stat()
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise ArtifactError(f"研究文件暂不可读：{path.name}") from exc
     return str(path), stat.st_mtime_ns, stat.st_size
 
 
 @lru_cache(maxsize=64)
 def _read_json_cached(path: str, _mtime: int, _size: int) -> dict[str, Any]:
-    with Path(path).open("r", encoding="utf-8") as handle:
-        value = json.load(handle)
+    try:
+        with Path(path).open("r", encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise ArtifactError(f"JSON研究文件损坏或暂不可读：{Path(path).name}") from exc
     if not isinstance(value, dict):
         raise ArtifactError(f"JSON 顶层必须是对象：{path}")
     return value
@@ -53,7 +59,10 @@ def _read_json_cached(path: str, _mtime: int, _size: int) -> dict[str, Any]:
 
 @lru_cache(maxsize=128)
 def _read_csv_cached(path: str, _mtime: int, _size: int) -> pd.DataFrame:
-    return pd.read_csv(path)
+    try:
+        return pd.read_csv(path)
+    except (OSError, ValueError, UnicodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+        raise ArtifactError(f"CSV研究文件损坏、为空或暂不可读：{Path(path).name}") from exc
 
 
 class ArtifactStore:

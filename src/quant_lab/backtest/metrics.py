@@ -32,9 +32,16 @@ def equal_weight_benchmark(
     work["benchmark_return"] = work.groupby(groups, sort=False)[
         price_col
     ].pct_change(fill_method=None)
-    eligible = work[eligibility_col].fillna(False).astype(bool)
+    # A close-to-close return is earned by the basket held at the previous
+    # close. Today's newly eligible stock cannot contribute an already elapsed
+    # overnight/day return. Also reject multi-session gaps in generic panels.
+    observed_dates = pd.DatetimeIndex(sorted(pd.to_datetime(work.trade_date).unique()))
+    preceding = pd.Series(observed_dates[:-1], index=observed_dates[1:])
+    prior_observed = work.groupby("symbol", sort=False).trade_date.shift()
+    adjacent = prior_observed.eq(work.trade_date.map(preceding))
+    eligible = work.groupby(groups, sort=False)[eligibility_col].shift().eq(True) & adjacent
     daily = work.loc[eligible].groupby("trade_date")["benchmark_return"].mean()
-    all_dates = pd.DatetimeIndex(sorted(pd.to_datetime(market["trade_date"]).unique()))
+    all_dates = observed_dates
     daily = daily.reindex(all_dates).fillna(0.0)
     if start_date is not None:
         daily = daily[daily.index >= pd.Timestamp(start_date)].copy()
@@ -58,7 +65,18 @@ def performance_metrics(
     if equity.empty or "equity" not in equity:
         raise ValueError("Equity table is empty or missing 'equity'")
     values = equity["equity"].astype(float)
-    returns = values.pct_change().dropna()
+    if not np.isfinite(values).all() or (values < 0).any() or values.iloc[0] <= 0:
+        raise ValueError("Equity must be finite and nonnegative, with positive initial equity")
+    if isinstance(periods_per_year, bool) or not isinstance(periods_per_year, int) or periods_per_year <= 0:
+        raise ValueError("periods_per_year must be a positive integer")
+    if "trade_date" in equity:
+        dates = pd.to_datetime(equity.trade_date)
+        if dates.isna().any() or dates.duplicated().any() or not dates.is_monotonic_increasing:
+            raise ValueError("Equity dates must be unique, valid and increasing")
+    previous = values.shift()
+    if (previous.eq(0) & values.gt(0)).any():
+        raise ValueError("Equity cannot recover from zero without a cash-flow model")
+    returns = values.pct_change(fill_method=None).mask(previous.eq(0) & values.eq(0), 0.).iloc[1:]
     if returns.empty:
         raise ValueError("At least two equity observations are required")
     years = len(returns) / periods_per_year

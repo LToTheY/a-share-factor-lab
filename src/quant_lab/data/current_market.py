@@ -49,6 +49,7 @@ def load_local_raw(root: Path, first, last, symbols: set[str]) -> pd.DataFrame:
 def refresh_current_market(
     client, root: Path, budget: StorageBudget, *, now=None, preferred_index="000905.SH",
     holdings: set[str] | None = None, ready_hour=18, lookback_sessions=260, progress=print,
+    validation_lookback=121,
 ) -> tuple[pd.DataFrame, dict]:
     now = pd.Timestamp(now if now is not None else shanghai_now())
     if now.tzinfo is not None:
@@ -82,7 +83,7 @@ def refresh_current_market(
         membership_frames.append(snapshot)
     current = pd.concat(membership_frames, ignore_index=True)
     write_budgeted_frame(current, base / "reference/current_membership.parquet", budget)
-    research_symbols = set(current.loc[current["index_code"].eq(preferred_index), "symbol"])
+    research_symbols = set(current["symbol"] if preferred_index == "CSI800" else current.loc[current["index_code"].eq(preferred_index), "symbol"])
     if not research_symbols:
         raise ValueError("Unsupported research index")
     required = research_symbols | (holdings or set())
@@ -140,7 +141,7 @@ def refresh_current_market(
     local = load_local_raw(root, first, target, required)
     market = prepare_price_panel(local, sessions, basics)
     market["in_index"] = market["symbol"].isin(research_symbols)
-    gate = validate_latest_panel(market, target, required, sessions)
+    gate = validate_latest_panel(market, target, required, sessions, lookback=validation_lookback)
     progress("同步沪深300与中证500指数行情", flush=True)
     benchmarks = refresh_benchmarks(client, base, sessions, first, target, budget, refresh_latest=True)
     gate.update({"data_through": str(target.date()), "next_trade_date": str(upcoming.date()),

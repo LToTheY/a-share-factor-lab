@@ -170,7 +170,9 @@ class BacktestTest(unittest.TestCase):
         )
         benchmark = equal_weight_benchmark(market, 100.0)
         self.assertEqual(benchmark.loc[2, "return"], 0.0)
-        self.assertEqual(benchmark.loc[2, "equity"], 100.0)
+        # Day-one members earn day-two returns before the new close basket is set.
+        self.assertEqual(benchmark.loc[1, "return"], 0.5)
+        self.assertEqual(benchmark.loc[2, "equity"], 150.0)
 
     def test_equal_weight_benchmark_rebases_at_requested_start(self) -> None:
         dates = pd.bdate_range("2025-01-02", periods=3)

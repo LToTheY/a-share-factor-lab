@@ -15,6 +15,7 @@ from quant_lab.data.freshness import current_result_status
 def render() -> None:
     page_intro("今日调仓检查", "先更新日行情、核验完整性，再查看最新排名和纸面调仓建议。")
     st.caption("按北京时间判断交易日。默认18:00以后要求当天完整日行情；此前使用上一交易日。")
+    st.info("本页检查项目默认策略与演示模拟账户。使用自己的策略和几千元账户，请进入“我的策略每日复核”。")
     from dashboard.research_runner import jobs_panel
     from quant_lab.research.jobs import JobStore
 
@@ -42,6 +43,9 @@ def render() -> None:
         config_path = PROJECT_ROOT / "configs/research.yaml"
         if current and status.get("config_sha256") != hashlib.sha256(config_path.read_bytes()).hexdigest():
             current, message = False, "研究配置已修改，请重新更新并计算"
+        from quant_lab.research.service import code_version
+        if current and status.get("code_version") != code_version(PROJECT_ROOT):
+            current, message = False, "计算代码已变化，请重新更新并计算"
         if current:
             state_path = PROJECT_ROOT / status["paper_state_file"]
             state_hash = hashlib.sha256(state_path.read_bytes()).hexdigest() if state_path.exists() else None
@@ -66,7 +70,7 @@ def render() -> None:
     metrics[0].metric("行情截止日", status["data_through"])
     metrics[1].metric("下一交易日", status["next_trade_date"])
     metrics[2].metric("股票池", str(status["data_check"]["research_symbols"]))
-    labels = {"NO_TRADE": "无需调仓", "REVIEW_REQUIRED": "需人工复核"}
+    labels = {"NO_TRADE": "无需调仓", "REVIEW_REQUIRED": "需人工复核", "UNFILLED": "资金或申报量不足"}
     metrics[3].metric("本次结果", labels.get(status["order_status"], status["order_status"]))
     st.caption(f"使用项目的模拟账户，现金 {status['paper_cash']:,.2f} 元；这不是已连接的券商账户。")
     output = (PROJECT_ROOT / status["report_dir"]).resolve()

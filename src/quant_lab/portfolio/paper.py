@@ -22,6 +22,8 @@ ORDER_COLUMNS = [
     "target_weight",
     "factor_rank",
     "reason",
+    "estimated_price", "estimated_fee", "estimated_tax", "estimated_cash_after",
+    "unfilled_shares", "conditional_on_sells",
 ]
 
 
@@ -61,6 +63,7 @@ def build_next_day_orders(
     frequency: str,
     lot_size: int = 100,
     reference_prices: pd.DataFrame | None = None,
+    costs=None,
 ) -> pd.DataFrame:
     """Create proposals only; never mutate holdings or claim future execution."""
     if latest_signals.empty:
@@ -78,6 +81,8 @@ def build_next_day_orders(
             columns=ORDER_COLUMNS,
         )
     next_date = pd.Timestamp(next_trade_date)
+    if next_date <= signal_date:
+        raise ValueError("计划交易日必须晚于信号日")
     if not is_rebalance_due(signal_date, next_date, frequency):
         return pd.DataFrame(
             [
@@ -101,7 +106,9 @@ def build_next_day_orders(
                 + ", ".join(sorted(missing_columns))
             )
         close_map.update(reference_prices.set_index("symbol")["close"].to_dict())
-    positions = {str(key): int(value) for key, value in state["positions"].items()}
+    from quant_lab.portfolio.order_plan import validate_account
+    state = validate_account(state)
+    positions = state["positions"]
     missing_prices = sorted(
         symbol
         for symbol, shares in positions.items()
@@ -127,49 +134,8 @@ def build_next_day_orders(
             ],
             columns=ORDER_COLUMNS,
         )
-    account_value = float(state["cash"]) + sum(
-        shares * float(close_map[symbol])
-        for symbol, shares in positions.items()
-        if shares
-    )
-    target_map = latest_targets.set_index("symbol").to_dict("index")
-    rows = []
-    for symbol in sorted(set(positions) | set(target_map)):
-        current = positions.get(symbol, 0)
-        target = target_map.get(symbol, {})
-        price = float(close_map.get(symbol, np.nan))
-        weight = float(target.get("target_weight", 0.0))
-        if weight and np.isfinite(price) and price > 0:
-            from quant_lab.backtest.lot_rules import round_order
-            target_shares = round_order(account_value * weight / price, symbol, lot_size)
-        else:
-            target_shares = 0
-        delta = target_shares - current
-        if delta == 0:
-            continue
-        rows.append(
-            {
-                "status": "REVIEW_REQUIRED",
-                "signal_date": signal_date,
-                "planned_trade_date": next_date,
-                "symbol": symbol,
-                "side": "BUY" if delta > 0 else "SELL",
-                "current_shares": current,
-                "target_shares": target_shares,
-                "shares": abs(delta),
-                "reference_close": price,
-                "target_weight": weight,
-                "factor_rank": target.get("factor_rank", np.nan),
-                "reason": "Check next-open price, suspension and price limit manually",
-            }
-        )
-    if not rows:
-        rows.append(
-            {
-                "status": "NO_TRADE",
-                "signal_date": signal_date,
-                "planned_trade_date": next_date,
-                "reason": "Buffered target matches paper-account positions",
-            }
-        )
+    from quant_lab.backtest.engine import BacktestConfig
+    from quant_lab.portfolio.order_plan import estimate_orders
+    config = costs or BacktestConfig(lot_size=lot_size)
+    rows = estimate_orders(latest_targets, state, close_map, signal_date, next_date, config)
     return pd.DataFrame(rows, columns=ORDER_COLUMNS)

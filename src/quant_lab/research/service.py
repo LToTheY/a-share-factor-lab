@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+import platform
+from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import duckdb
@@ -34,6 +36,9 @@ BUILTIN_INPUTS = {
     "amount_momentum_20": (20, ["amount"]),
     "price_volume_corr_20": (20, ["adj_close", "amount"]),
     "ivol_60": (120, ["adj_close"]),
+    "downside_volatility_20": (20, ["adj_close"]),
+    "overnight_reversal_5": (5, ["adj_open", "adj_close"]),
+    "intraday_momentum_20": (20, ["open", "close"]),
 }
 
 
@@ -56,8 +61,22 @@ def code_version(root: Path) -> str:
 
 def factor_version(root: Path) -> str:
     paths = [*(root / "src/quant_lab/factors").rglob("*.py"),
-             root / "src/quant_lab/evaluation/preprocess.py", root / "src/quant_lab/universe/filters.py"]
+             root / "src/quant_lab/evaluation/preprocess.py", root / "src/quant_lab/universe/filters.py",
+             root / "src/quant_lab/evaluation/diagnostics.py",
+             root / "src/quant_lab/research/factor_suite.py", root / "src/quant_lab/research/service.py",
+             root / "src/quant_lab/research/settings.py"]
     return digest({str(p.relative_to(root)): file_digest(p) for p in sorted(paths)})
+
+
+def runtime_manifest() -> dict:
+    """Record numerical dependencies without usernames, machine names or paths."""
+    packages = {}
+    for name in ("numpy", "pandas", "duckdb", "pyarrow", "scipy", "scikit-learn"):
+        try:
+            packages[name] = version(name)
+        except PackageNotFoundError:
+            packages[name] = None
+    return {"python": platform.python_version(), "system": platform.system(), "packages": packages}
 
 
 def local_path(root: Path, value: str, *, area: str | None = None) -> Path:
@@ -85,6 +104,7 @@ class ResearchRequest:
     dataset: dict
     code_version: str
     factor_version: str
+    runtime: dict = field(default_factory=runtime_manifest)
 
     @classmethod
     def create(cls, root: Path, config: dict):
@@ -122,7 +142,7 @@ def load_inputs(path: Path, settings) -> pd.DataFrame:
     missing = sorted(required - available)
     if missing:
         raise ValueError("行情缺少因子/股票池所需字段：" + ", ".join(missing))
-    columns = sorted(required | (available & {"listing_age_sessions", "is_usable_market_data",
+    columns = sorted(required | (available & {"adj_open", "preclose", "up_limit", "down_limit", "listing_age_sessions", "is_usable_market_data",
                                                "research_segment", "amount_outside_price_range"}))
     with duckdb.connect() as con:
         con.execute("SET threads=2")
@@ -150,7 +170,8 @@ def load_inputs(path: Path, settings) -> pd.DataFrame:
 def run_research(root: Path, request: ResearchRequest, output: Path, progress=lambda message: None) -> dict:
     """Write into a private candidate directory; caller publishes only on success."""
     path = local_path(root, request.config["data"]["processed_file"])
-    if dataset_version(path) != request.dataset or code_version(root) != request.code_version:
+    if (dataset_version(path) != request.dataset or code_version(root) != request.code_version
+            or request.runtime != runtime_manifest()):
         raise ValueError("排队后数据或代码已变化，请重新提交研究")
     output.mkdir(parents=True, exist_ok=True)
     config_path = output / "effective_config.yaml"
@@ -161,11 +182,12 @@ def run_research(root: Path, request: ResearchRequest, output: Path, progress=la
     market.attrs["dataset_id"] = request.dataset["dataset_id"]
     summary, _, _ = run_factor_suite(market, settings, output, None, progress=progress)
     progress("核验版本并发布结果")
-    if dataset_version(path) != request.dataset or code_version(root) != request.code_version:
+    if (dataset_version(path) != request.dataset or code_version(root) != request.code_version
+            or request.runtime != runtime_manifest()):
         raise ValueError("运行期间数据或代码发生变化；候选结果未发布，请重新运行")
     custom = {name: item for name, item in custom_factor_metadata().items()
               if name in {f.name for f in settings.factors}}
-    provenance = {**request.dataset, "code_version": request.code_version,
+    provenance = {**request.dataset, "code_version": request.code_version, "runtime": request.runtime,
                   "factor_version": request.factor_version, "universe": settings.preferred_index,
                   "market_file": str(path.relative_to(root)), "custom_factors": custom,
                   "request_fingerprint": digest(request.config),

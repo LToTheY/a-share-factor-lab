@@ -58,6 +58,8 @@ backtest:
   historical_stamp_duty_rate: 0.001
   stamp_duty_change_date: "2023-08-28"
   transfer_fee_rate: 0.00001
+  historical_transfer_fee_multiplier: 2.0
+  transfer_fee_change_date: "2022-04-29"
   slippage_bps: 5.0
   minimum_commission: 5.0
   lot_size: 100
@@ -80,3 +82,6 @@ validation:
 current_check:
   data_ready_hour: 18
   lookback_sessions: 260
+  # Daily incremental checks are small; keep 2 GB free. Bulk downloads retain their 10 GB reserve.
+  minimum_free_bytes: 2000000000
+  maximum_data_bytes: 10000000000

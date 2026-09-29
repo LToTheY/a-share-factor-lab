@@ -33,6 +33,11 @@ def conditions(metadata: dict) -> None:
         )
     st.write(f"股票池：{provenance.get('universe', '旧报告未保存股票池参数')}")
     st.write(f"因子：{', '.join(strategy.get('factor_weights', {})) or '旧报告未记录'}")
+    if strategy:
+        mode = "按预算筛选候选" if strategy.get("selection_mode") == "affordable" else "按因子排名选股"
+        st.caption(f"选股方式：{mode} · 现金预留 {pct(strategy.get('cash_buffer', 0))} · "
+                   f"科创板：{'纳入' if strategy.get('allow_star', True) else '关闭'} · 创业板：{'纳入' if strategy.get('allow_chinext', True) else '关闭'}")
+    st.caption("诊断基准是所选历史股票池的无费用等权价格收益，不是可直接买入的官方指数产品；板块和预算限制可能使实际持仓与基准范围不同。")
     with st.expander("查看完整参数与数据来源"):
         st.json(
             {"组合规则": strategy, "费用与资金": config, "数据与研究口径": provenance}
@@ -73,7 +78,7 @@ def ledger(
             f"执行信号日期：{signal:%Y-%m-%d}；目标是该日收盘后的计划，持仓是回放日收盘的实际结果。"
         )
     for tab, table, empty in zip(
-        st.tabs(["目标与信号", "实际成交", "收盘持仓", "未成交 / 部分成交"]),
+        st.tabs(["目标与信号", "实际成交", "收盘持仓", "执行与估值异常"]),
         [day["targets"], day["trades"], day["positions"], day["issues"]],
         [
             "当日没有可展示的执行目标。",

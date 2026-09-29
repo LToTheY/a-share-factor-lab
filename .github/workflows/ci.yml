@@ -11,7 +11,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -29,4 +33,4 @@ jobs:
         run: ruff check .
 
       - name: Test
-        run: pytest
+        run: python -m pytest --basetemp data/interim/pytest-ci

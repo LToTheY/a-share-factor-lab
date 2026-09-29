@@ -46,21 +46,21 @@ def reversal_5(frame: pd.DataFrame) -> pd.Series:
     """Negative five-day adjusted return."""
     require_columns(frame, ["symbol", "close"])
     price = _adjusted_close(frame)
-    return -price.groupby(frame["symbol"], sort=False).pct_change(5)
+    return -price.groupby(frame["symbol"], sort=False).pct_change(5, fill_method=None)
 
 
 def reversal_20(frame: pd.DataFrame) -> pd.Series:
     """Negative twenty-day adjusted return."""
     require_columns(frame, ["symbol", "close"])
     price = _adjusted_close(frame)
-    return -price.groupby(frame["symbol"], sort=False).pct_change(20)
+    return -price.groupby(frame["symbol"], sort=False).pct_change(20, fill_method=None)
 
 
 def amihud_20(frame: pd.DataFrame) -> pd.Series:
     """20-day average absolute return divided by CNY turnover."""
     require_columns(frame, ["symbol", "close", "amount"])
     price = _adjusted_close(frame)
-    returns = price.groupby(frame["symbol"], sort=False).pct_change()
+    returns = price.groupby(frame["symbol"], sort=False).pct_change(fill_method=None)
     daily_illiquidity = returns.abs() / frame["amount"].replace(0, np.nan)
     return (
         daily_illiquidity.groupby(frame["symbol"], sort=False)
@@ -73,7 +73,7 @@ def amihud_20(frame: pd.DataFrame) -> pd.Series:
 def volatility_20(frame: pd.DataFrame) -> pd.Series:
     """20-day realized volatility of daily adjusted returns."""
     price = _adjusted_close(frame)
-    returns = price.groupby(frame["symbol"], sort=False).pct_change()
+    returns = price.groupby(frame["symbol"], sort=False).pct_change(fill_method=None)
     return (
         returns.groupby(frame["symbol"], sort=False)
         .rolling(20, min_periods=15)
@@ -85,13 +85,36 @@ def volatility_20(frame: pd.DataFrame) -> pd.Series:
 def volatility_60(frame: pd.DataFrame) -> pd.Series:
     """60-day realized volatility of daily adjusted returns."""
     price = _adjusted_close(frame)
-    returns = price.groupby(frame["symbol"], sort=False).pct_change()
+    returns = price.groupby(frame["symbol"], sort=False).pct_change(fill_method=None)
     return (
         returns.groupby(frame["symbol"], sort=False)
         .rolling(60, min_periods=40)
         .std()
         .reset_index(level=0, drop=True)
     )
+
+
+def downside_volatility_20(frame: pd.DataFrame) -> pd.Series:
+    """Root mean squared negative daily return, including zero for up days."""
+    returns = _adjusted_close(frame).groupby(frame["symbol"], sort=False).pct_change(fill_method=None)
+    squares = returns.clip(upper=0).pow(2)
+    mean = squares.groupby(frame["symbol"], sort=False).rolling(20, min_periods=15).mean().reset_index(level=0, drop=True)
+    return np.sqrt(mean)
+
+
+def overnight_reversal_5(frame: pd.DataFrame) -> pd.Series:
+    """Negative mean of five adjusted overnight opening gaps, known by close."""
+    require_columns(frame, ["adj_open", "adj_close", "symbol"])
+    prior_close = frame["adj_close"].groupby(frame["symbol"], sort=False).shift()
+    gaps = -(frame["adj_open"] / prior_close.where(prior_close.gt(0)) - 1)
+    return gaps.groupby(frame["symbol"], sort=False).rolling(5, min_periods=5).mean().reset_index(level=0, drop=True)
+
+
+def intraday_momentum_20(frame: pd.DataFrame) -> pd.Series:
+    """Twenty-day mean open-to-close return from daily bars, no minute data."""
+    require_columns(frame, ["open", "close", "symbol"])
+    daily = frame["close"] / frame["open"].where(frame["open"].gt(0)) - 1
+    return daily.groupby(frame["symbol"], sort=False).rolling(20, min_periods=15).mean().reset_index(level=0, drop=True)
 
 
 def turnover_mean_20(frame: pd.DataFrame) -> pd.Series:
@@ -121,7 +144,7 @@ def price_volume_corr_20(frame: pd.DataFrame) -> pd.Series:
     """Rolling correlation between adjusted returns and amount changes."""
     require_columns(frame, ["symbol", "amount", "close"])
     price = _adjusted_close(frame)
-    returns = price.groupby(frame["symbol"], sort=False).pct_change()
+    returns = price.groupby(frame["symbol"], sort=False).pct_change(fill_method=None)
     amount_change = (
         np.log(frame["amount"].replace(0, np.nan))
         .groupby(frame["symbol"], sort=False)
@@ -143,7 +166,7 @@ def idiosyncratic_volatility_60(frame: pd.DataFrame) -> pd.Series:
     """Rolling CAPM residual volatility using equal-weight market return."""
     require_columns(frame, ["trade_date", "symbol", "close"])
     price = _adjusted_close(frame)
-    returns = price.groupby(frame["symbol"], sort=False).pct_change()
+    returns = price.groupby(frame["symbol"], sort=False).pct_change(fill_method=None)
     market = returns.groupby(frame["trade_date"]).transform("mean")
     output = pd.Series(np.nan, index=frame.index, dtype=float)
 
@@ -180,6 +203,9 @@ FACTOR_REGISTRY: dict[str, FactorFunction] = {
     "amihud_20": amihud_20,
     "volatility_20": volatility_20,
     "volatility_60": volatility_60,
+    "downside_volatility_20": downside_volatility_20,
+    "overnight_reversal_5": overnight_reversal_5,
+    "intraday_momentum_20": intraday_momentum_20,
     "turnover_mean_20": turnover_mean_20,
     "amount_momentum_20": amount_momentum_20,
     "price_volume_corr_20": price_volume_corr_20,

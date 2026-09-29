@@ -9,7 +9,15 @@ from pathlib import Path
 
 def directory_bytes(root: str | Path) -> int:
     directory = Path(root)
-    return sum(p.stat().st_size for p in directory.rglob("*") if p.is_file())
+    total = 0
+    for path in directory.rglob("*"):
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except FileNotFoundError:
+            # A worker can atomically replace/remove its own temporary file.
+            continue
+    return total
 
 
 @dataclass(frozen=True)

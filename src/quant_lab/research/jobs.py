@@ -17,12 +17,25 @@ from uuid import uuid4
 
 from quant_lab.data.process_lock import data_lock
 from quant_lab.research.service import ResearchRequest, digest, local_path, run_research
+from quant_lab.research.snapshots import snapshot_source
 
 ACTIVE = {"queued", "running", "cancelling"}
 
 
 class JobCancelled(Exception):
     pass
+
+
+def read_json(path: Path) -> dict:
+    """Tolerate bounded Windows sharing races without hiding corrupt JSON."""
+    for attempt in range(20):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
+    raise AssertionError("unreachable")
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -75,11 +88,11 @@ class JobStore:
 
     def get(self, identifier: str) -> dict:
         path = self.path(identifier) / "status.json"
-        status = json.loads(path.read_text(encoding="utf-8"))
+        status = read_json(path)
         if status["state"] in ACTIVE and time.time() - status.get("heartbeat", time.time()) > 30 and not alive(status.get("pid", 0)):
             # Do not overwrite a live worker's completion; serialize with submit.
             with data_lock(self.directory / "registry.lock"):
-                status = json.loads(path.read_text(encoding="utf-8"))
+                status = read_json(path)
                 if status["state"] in ACTIVE and not alive(status.get("pid", 0)):
                     status.update(state="failed", message="后台进程已退出（可能关机）；已有成功结果保留")
                     atomic_json(path, status)
@@ -90,25 +103,27 @@ class JobStore:
                       key=lambda s: s["created_at"], reverse=True)
 
     def submit(self, kind: str, payload: dict, *, launch: bool = True) -> dict:
-        if kind not in {"research", "strategy", "update"}:
+        if kind not in {"research", "strategy", "update", "manual_review"}:
             raise ValueError("未知任务类型")
         # Reconcile crashed workers before taking the registry lock.
         self.list()
         fingerprint = digest({"kind": kind, "payload": payload})
         with data_lock(self.directory / "registry.lock"):
             for path in self.directory.glob("*/status.json"):
-                old = json.loads(path.read_text(encoding="utf-8"))
+                old = read_json(path)
                 if old["state"] in ACTIVE:
                     if old["fingerprint"] == fingerprint:
                         return old
                     raise ValueError("已有重型任务运行中，请等待完成或取消后再提交")
+            snapshot = snapshot_source(self.root, payload.get("code_version"))
             identifier = uuid4().hex
             folder = self.path(identifier)
             folder.mkdir(parents=True)
             atomic_json(folder / "request.json", {"kind": kind, "payload": payload})
             status = {"id": identifier, "kind": kind, "fingerprint": fingerprint, "state": "queued",
                       "created_at": datetime.now(timezone.utc).isoformat(), "message": "等待后台进程",
-                      "heartbeat": time.time(), "pid": 0}
+                      "heartbeat": time.time(), "pid": 0,
+                      "source_snapshot": str(snapshot.relative_to(self.root)) if snapshot else None}
             atomic_json(folder / "status.json", status)
             if launch:
                 try:
@@ -129,7 +144,7 @@ class JobStore:
     def cancel(self, identifier: str) -> None:
         self.get(identifier)
         with data_lock(self.directory / "registry.lock"):
-            status = json.loads((self.path(identifier) / "status.json").read_text(encoding="utf-8"))
+            status = read_json(self.path(identifier) / "status.json")
             if status["state"] in ACTIVE:
                 (self.path(identifier) / "cancel").touch()
 
@@ -146,7 +161,7 @@ def execute_job(root: Path, identifier: str) -> None:
     store = JobStore(root)
     folder = store.path(identifier)
     status = store.get(identifier)
-    request = json.loads((folder / "request.json").read_text(encoding="utf-8"))
+    request = read_json(folder / "request.json")
     mutex = threading.Lock()
     stopped = threading.Event()
 
@@ -172,14 +187,23 @@ def execute_job(root: Path, identifier: str) -> None:
             ticker.start()
             progress("开始检查任务")
             kind, payload = request["kind"], request["payload"]
-            if kind == "update":
+            if kind in {"update", "manual_review"}:
                 from quant_lab.research.current_check import run_current_check
 
-                result = run_current_check(root, root / "configs/research.yaml", progress_hook=progress)
-                progress("检查数据更新结果")
+                if kind == "manual_review":
+                    from quant_lab.research.manual_review import load_profile
+                    profile = load_profile(root, payload["profile_id"])
+                    result = run_current_check(root, local_path(root, profile["config_file"], area="data/state/manual_review"), progress_hook=progress, profile_id=profile["id"])
+                else:
+                    result = run_current_check(root, root / "configs/research.yaml", progress_hook=progress)
                 if result.get("status") != "ready":
+                    progress("检查数据更新结果")
                     raise ValueError(result.get("message") or result.get("error") or result.get("reason") or str(result))
-                result_path = "data/state/current_check.json"
+                result_path = f"data/state/manual_review/{profile['id']}/status.json" if kind == "manual_review" else "data/state/current_check.json"
+                # run_current_check has already atomically published success. A late
+                # cancel cannot retract that visible result or relabel it cancelled.
+                with data_lock(store.directory / "registry.lock"):
+                    update(state="succeeded", message="已完成", result=result_path)
             else:
                 with data_lock(root / "data/state/market_download.lock"):
                     candidate = root / "reports/generated/jobs" / (".pending-" + identifier)
@@ -199,7 +223,7 @@ def execute_job(root: Path, identifier: str) -> None:
                         progress("发布成功结果")
                         candidate.rename(destination)
                         if kind == "strategy":
-                            experiment = json.loads((destination / "experiment.json").read_text(encoding="utf-8"))
+                            experiment = read_json(destination / "experiment.json")
                             experiment_root = root / "data/state/strategy_experiments"
                             experiment_root.mkdir(parents=True, exist_ok=True)
                             (destination / "experiments" / experiment["id"]).rename(experiment_root / experiment["id"])

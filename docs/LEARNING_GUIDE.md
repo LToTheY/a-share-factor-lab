@@ -8,8 +8,9 @@
 .\scripts\daily_update.ps1
 ```
 
-打开看板“今日调仓检查”，或读取`data/state/current_check.json`及其指向的本次
-`latest_signal.csv`、`next_day_orders.csv`。更新失败时没有新的可用建议。
+打开看板“今日调仓检查”了解默认模拟研究，或读取`data/state/current_check.json`及其指向的本次
+`latest_signal.csv`、`next_day_orders.csv`。更新失败时没有新的可用建议。使用自己的几千元
+账户前，先完成 [个人策略复核教程](MANUAL_REVIEW.md)，不要修改默认模拟账户来试验。
 
 日常入口只更新近期窗口和当期排名。完整历史研究保存在
 `reports/generated/daily_factor_lab/`，由`scripts/run_factor_suite.py`读取既有历史库生成。
@@ -69,7 +70,8 @@
 
 阅读：
 
-- `src/quant_lab/portfolio/weights.py`
+- `src/quant_lab/portfolio/selection.py`
+- `src/quant_lab/portfolio/order_plan.py`
 - `src/quant_lab/portfolio/paper.py`
 - `src/quant_lab/backtest/engine.py`
 - `tests/test_backtest.py`
@@ -81,12 +83,15 @@
 
 ## 第6课：稳健性和负结果
 
-阅读`robustness.csv`，比较：
+在“实验历史”打开某次实验的单因素对照，比较：
 
-- 20/60/120日窗口
-- 是否跳过近期收益
+- 持股数5/10/20
 - 周频/月频
-- 换手、成本、回撤和RankIC
+- 基准费用与滑点/双倍费用与滑点
+- 换手、现金闲置、费用占比和回撤
+
+对照会保存各组结果，不自动推荐最高收益组。因子窗口和是否跳过近期收益属于另一组
+研究问题，需要先写假设并另建实验，不能和持仓数量一起改完后声称只检验了一个因素。
 
 练习：写一段不超过200字的结论，必须包含至少一个失效场景。
 

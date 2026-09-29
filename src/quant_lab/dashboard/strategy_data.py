@@ -84,7 +84,7 @@ class StrategyDataStore:
             ORDER BY trade_date, symbol
         '''
         available = {row[0] for row in duckdb.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(self.market_file)]).fetchall()}
-        extra = [name for name in ["is_usable_market_data", "is_st_known", "is_suspended_known",
+        extra = [name for name in ["adj_open", "preclose", "up_limit", "down_limit", "is_usable_market_data", "is_st_known", "is_suspended_known",
                                   "limit_status_known", "research_segment"] if name in available]
         provenance_path = self.score_file.parent / "dataset_provenance.json"
         pool_column = None

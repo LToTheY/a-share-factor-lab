@@ -2,7 +2,8 @@
 
 import json
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 import yaml
@@ -13,6 +14,7 @@ from quant_lab.research.jobs import JobStore
 from quant_lab.research.service import (
     BUILTIN_INPUTS,
     POOLS,
+    code_version,
     create_demo,
     factor_version,
 )
@@ -20,15 +22,28 @@ from quant_lab.research.service import (
 POOL_LABELS = {"000300.SH": "历史沪深300", "000905.SH": "历史中证500", "CSI800": "历史沪深300与中证500并集"}
 
 
+@st.fragment(run_every="5s")
 def jobs_panel(kind=None):
     storage = JobStore(PROJECT_ROOT)
     if st.button("刷新任务状态", key=f"refresh_jobs_{kind}"):
         st.rerun()
-    records = [s for s in storage.list() if kind is None or s["kind"] == kind]
+    try:
+        records = [s for s in storage.list() if kind is None or s["kind"] == kind]
+    except (OSError, ValueError, KeyError) as exc:
+        st.error(f"任务记录暂不可读：{exc}。结果文件仍保留；修复记录前不会启动新任务。")
+        return
     if not records:
         st.info("尚未提交任务。完成配置后即可运行，刷新页面不会丢失进度。")
-    for status in records[:5]:
-        with st.expander(f"{status['kind']} · {status['state']} · {status['created_at']} · {status['id'][:8]}", expanded=status["state"] in {"queued", "running", "cancelling"}):
+    history = st.toggle("显示最近5项任务", value=False, key=f"job_history_{kind}")
+    st.caption("状态每5秒更新，时间为北京时间；关闭网页后后台仍可运行。默认显示最近一项，保存的实验可在实验历史查看。")
+    kinds = {"research": "因子研究", "strategy": "策略实验", "update": "数据更新", "manual_review": "每日人工复核"}
+    states = {"queued": "排队中", "running": "运行中", "cancelling": "取消中", "cancelled": "已取消", "failed": "失败", "succeeded": "已完成"}
+    for status in records[:5 if history else 1]:
+        created = datetime.fromisoformat(status["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        timestamp = created.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%m-%d %H:%M:%S")
+        with st.expander(f"{kinds.get(status['kind'], status['kind'])} · {states.get(status['state'], status['state'])} · {timestamp} · {status['id'][:8]}", expanded=status["state"] in {"queued", "running", "cancelling"}):
             st.write(status["message"])
             if status["state"] in {"queued", "running", "cancelling"}:
                 if st.button("取消任务", key="cancel_" + status["id"]):
@@ -79,6 +94,8 @@ def version_notice(artifacts):
             reasons.append("行情已更新")
     if reasons:
         st.warning("历史版本：" + "；".join(reasons) + "。旧报告仍可阅读，新实验需要重建研究。")
+    elif source.get("code_version") != code_version(PROJECT_ROOT):
+        st.warning("报告生成后研究程序已有更新。因子分数版本仍匹配；历史组合与诊断应按原代码解释，新策略实验会使用当前代码。")
     if source.get("provider") == "synthetic":
         st.warning("合成数据演示：所有股票和收益均用于验证流程，不是真实投资表现。")
 
