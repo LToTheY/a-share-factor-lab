@@ -90,3 +90,21 @@ Windows 测试临时目录使用项目内唯一目录，避免系统临时目录
 合计4,709,283,560字节（约4.71 GB）。报告多版本与对照均保留，未为节省空间删除研究失败证据。
 只对报告归档及任务结果做NTFS透明压缩，1,546个文件前后内容哈希完全一致，实际分配空间减少46,747,600字节。
 容量和保护文件哈希见`data/state/final_local_audit.json`。
+
+首轮新增功能已发布为`6d9c663`，GitHub的Windows和Linux各228项测试通过，
+记录：[CI运行](https://github.com/LToTheY/a-share-factor-lab/actions/runs/36618831006)。
+继续审计后补充15个价量因子的前缀不变、未来扰动、输入乱序、跨股隔离与缺口预热检查。
+
+新增独立账本核对模块、命令行与实验历史按钮。核对现金守恒、持仓股数、估值、费用金额和
+下一交易日成交，刻意不复用撮合引擎来重跑结果。对28份已保存实验的核对全部通过；
+测试还验证篡改成交费、股数、时点或持仓后能报告失败。
+证据在本机`data/state/ledger_audits/`，原实验没有修改。
+
+将每日更新得到的分数与全历史研究同一截面比较：2026-09-29，中证500筛选后均为498只，
+11个默认因子最大绝对差约4.8×10⁻¹⁴。比较只读取两套结果，未重下全量行情；
+记录为本机`data/state/current_historical_score_consistency.json`。
+
+追加检查后的全套结果为252 passed（`data/interim/final-ui-audit-tests.log`），全仓Ruff通过。
+随后补充非交易日信号和零成交价格检查，最终254 passed（`data/interim/final-254-tests.log`）。
+对119组稳健性结果、92个样本外折及1份默认研究账本独立核对，共212份通过，
+结果在`data/state/saved_component_ledger_audit.json`；不改写任何旧回测。

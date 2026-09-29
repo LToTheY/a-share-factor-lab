@@ -9,10 +9,28 @@ import streamlit as st
 from dashboard.backtest_details import conditions, ledger
 from dashboard.components import drawdown_figure
 from dashboard.context import PROJECT_ROOT, page_intro
+from quant_lab.backtest.audit import audit_ledger
 from quant_lab.dashboard import ArtifactError
 from quant_lab.dashboard.experiments import ExperimentStore
 
 EXPERIMENT_ROOT = PROJECT_ROOT / "data" / "state" / "strategy_experiments"
+LEDGER_CHECK_LABELS = {
+    "equity_finite_nonnegative": "现金、估值和权益有效且非负",
+    "trades_finite_nonnegative": "成交金额、价格和费用有效且非负",
+    "positions_finite_nonnegative": "持仓股数和估值有效且非负",
+    "positive_integer_shares": "成交和持仓股数为正整数",
+    "valid_trade_sides": "成交方向有效",
+    "positive_trade_prices": "成交价为正数",
+    "dates_within_equity_calendar": "成交和持仓日期属于回测日历",
+    "gross_equals_price_times_shares": "成交金额等于股数乘成交价",
+    "position_values_equal_marks_times_shares": "持仓市值等于股数乘估值价",
+    "equity_equals_cash_plus_market_value": "账户权益等于现金加持仓市值",
+    "daily_position_values_match_equity": "持仓明细合计与账户市值一致",
+    "cash_reconciles_from_executions": "从成交重算的现金与每日余额一致",
+    "holdings_reconcile_from_executions": "从成交重算的股数与每日持仓一致",
+    "never_short_from_executions": "累计成交未产生负持仓",
+    "execution_on_next_observed_session": "成交发生在信号后的下一交易日",
+}
 
 
 def _flatten(value, prefix=""):
@@ -245,11 +263,27 @@ def render():
                 audit_dates = sorted(pd.to_datetime(audit.trade_date).unique(), reverse=True)
                 audit_date = st.selectbox("选股信号日", audit_dates, format_func=lambda d: pd.Timestamp(d).strftime("%Y-%m-%d"), key="selection_date_"+first)
                 st.dataframe(audit[pd.to_datetime(audit.trade_date).eq(audit_date)], hide_index=True, width="stretch")
+        trades = storage.table(first, "trades")
+        positions = storage.table(first, "positions")
+        with st.expander("现金、成交与持仓对账"):
+            st.caption("从成交独立重算每日现金、股数及估值；适用于初始空仓、无外部资金进出的研究账本。通过不代表行情、分红或收益已被独立验证。")
+            if st.button("核对本实验账本", key="audit_ledger_" + first):
+                checked = audit_ledger(equity, trades, positions, metadata["backtest"]["initial_cash"])
+                if checked["passed"]:
+                    st.success("账本核对通过：保存的现金、成交、持仓与净值一致。")
+                else:
+                    st.error("账本核对未通过，请先查看失败项目，暂停使用这份结果作判断。")
+                st.dataframe(pd.DataFrame([{"检查": LEDGER_CHECK_LABELS.get(name, name), "通过": item["passed"],
+                                            "最大数值差": item.get("maximum_absolute_error")}
+                                           for name, item in checked["checks"].items()]), hide_index=True, width="stretch")
+                st.caption("费用加回值仅是固定成交的算术拆分，不等于重新运行零费用策略。")
+                st.download_button("导出账本核对记录", json.dumps(checked, ensure_ascii=False, indent=2, allow_nan=False),
+                                   file_name=f"ledger_audit_{first}.json", mime="application/json", key="audit_download_" + first)
         ledger(
             equity,
             storage.table(first, "targets"),
-            storage.table(first, "trades"),
-            storage.table(first, "positions"),
+            trades,
+            positions,
             storage.table(first, "execution_issues"),
             key=f"history_day_{first}",
         )

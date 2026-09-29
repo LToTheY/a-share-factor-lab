@@ -126,7 +126,7 @@ cd "<项目目录>"
 如果PowerShell禁止激活脚本，可以不激活，直接使用：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[all]"
+.\.venv\Scripts\python.exe -m pip install -e ".[free-data,dashboard,dev]"
 .\.venv\Scripts\python.exe scripts\run_tests.py
 ```
 
@@ -136,6 +136,9 @@ cd "<项目目录>"
 python -m pip install -e .
 python scripts\run_tests.py
 ```
+
+日频价量网页不需要安装PyTorch、LightGBM或WRDS。确认要使用相关模块后再按其教程安装
+对应可选依赖；`all`包含深度学习等较大的包，不是小存储设备的默认安装选项。
 
 ## 2. 运行免费真实数据每日流程
 

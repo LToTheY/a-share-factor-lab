@@ -63,6 +63,23 @@ def test_result_shows_saved_conditions_not_current_form(tmp_path, monkeypatch):
     )
 
 
+def test_history_independent_ledger_audit_uses_saved_tables(tmp_path, monkeypatch):
+    result, spec, config, source = sample_experiment()
+    monkeypatch.setattr(experiment_history, "EXPERIMENT_ROOT", tmp_path)
+    store = ExperimentStore(tmp_path)
+    identifier = store.save(result, spec, config, source, "audit_demo")
+    app = AppTest.from_string("from dashboard.views.experiment_history import render\nrender()").run()
+    next(button for button in app.button if button.label == "核对本实验账本").click().run()
+    assert not app.exception
+    assert any("账本核对通过" in item.value for item in app.success)
+    table = store.table(identifier, "trades")
+    table.loc[0, "fee"] += 1.
+    table.to_parquet(tmp_path / identifier / "trades.parquet", index=False)
+    next(button for button in app.button if button.label == "核对本实验账本").click().run()
+    assert not app.exception
+    assert any("账本核对未通过" in item.value for item in app.error)
+
+
 def test_module_template_equalizes_groups_and_reloaded_edits_take_effect():
     import pandas as pd
 
