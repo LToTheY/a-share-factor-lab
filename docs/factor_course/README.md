@@ -4,6 +4,9 @@
 
 原来的 `docs/FACTOR_RESEARCH_TUTORIAL.md` 保留作参考手册：忘记某个公式时查它。学习时以本目录的逐课笔记为主。
 
+新增网页操作与小资金、策略设计、失败复盘路线：[45分钟课程总表](../BEGINNER_COURSE.md)。
+完整可运行练习：[项目使用教程](../USER_GUIDE.md)。
+
 ## 课程适合谁
 
 默认你会最基础的Python语法，但不要求你已经理解：
@@ -59,7 +62,7 @@
 所有命令默认在这里执行：
 
 ```powershell
-cd C:\Users\lenovo\Desktop\水滴石穿\a-share-factor-lab
+cd <项目目录>
 ```
 
 使用项目自己的Python：

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
+from quant_lab.backtest.lot_rules import order_unit, round_order
 from quant_lab.data.schema import require_columns
 
 
@@ -45,6 +46,7 @@ class BacktestResult:
     equity: pd.DataFrame
     trades: pd.DataFrame
     positions: pd.DataFrame
+    execution_issues: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _commission(gross: float, config: BacktestConfig) -> float:
@@ -72,6 +74,19 @@ def _execution_schedule(
         if position < len(trading_dates):
             schedule[trading_dates[position]] = signal_date
     return schedule
+
+
+def _data_issue(row: pd.Series) -> str | None:
+    if "is_usable_market_data" in row and not bool(row["is_usable_market_data"]):
+        return "行情质量异常，禁止模拟成交"
+    for column in ["is_st_known", "is_suspended_known", "limit_status_known"]:
+        if column in row and (pd.isna(row[column]) or not bool(row[column])):
+            return "交易状态未知，禁止模拟成交"
+    if not np.isfinite(row["open"]) or row["open"] <= 0:
+        return "开盘价无效"
+    if not np.isfinite(row["close"]) or row["close"] <= 0:
+        return "收盘估值价格无效"
+    return None
 
 
 def run_backtest(
@@ -105,9 +120,11 @@ def run_backtest(
 
     cash = float(config.initial_cash)
     shares: dict[str, int] = {}
+    last_marks: dict[str, float] = {}
     equity_rows = []
     trade_rows = []
     position_rows = []
+    issue_rows = []
     slippage = config.slippage_bps / 10_000.0
 
     for trade_date, day in market.groupby("trade_date", sort=True):
@@ -116,29 +133,64 @@ def run_backtest(
             signal_date = schedule[trade_date]
             targets = target_weights[target_weights["trade_date"] == signal_date]
             target_map = dict(zip(targets["symbol"], targets["target_weight"]))
+
+            def record_issue(
+                symbol,
+                side,
+                reason,
+                requested=None,
+                unfilled=None,
+                trade_date=trade_date,
+                signal_date=signal_date,
+            ):
+                issue_rows.append(
+                    {
+                        "trade_date": trade_date,
+                        "signal_date": signal_date,
+                        "symbol": symbol,
+                        "side": side,
+                        "reason": reason,
+                        "requested_shares": requested,
+                        "unfilled_shares": unfilled,
+                    }
+                )
+
             open_equity = cash + sum(
-                quantity * float(day.at[symbol, "open"])
+                quantity * (float(day.at[symbol, "open"])
+                            if symbol in day.index and np.isfinite(day.at[symbol, "open"]) and day.at[symbol, "open"] > 0
+                            else last_marks[symbol])
                 for symbol, quantity in shares.items()
-                if symbol in day.index
             )
 
             # Sell first so proceeds can finance purchases.
             for symbol in sorted(set(shares) | set(target_map)):
                 if symbol not in day.index:
+                    record_issue(symbol, "REBALANCE", "缺少当日行情")
                     continue
                 row = day.loc[symbol]
+                data_issue = _data_issue(row)
+                if data_issue:
+                    record_issue(symbol, "REBALANCE", data_issue)
+                    continue
                 desired_value = open_equity * target_map.get(symbol, 0.0)
                 raw_price = float(row["open"])
-                desired_shares = int(
-                    np.floor(desired_value / raw_price / config.lot_size)
-                    * config.lot_size
-                )
+                desired_shares = round_order(desired_value / raw_price, symbol, config.lot_size)
                 current_shares = shares.get(symbol, 0)
-                quantity = current_shares - desired_shares
+                quantity = round_order(current_shares - desired_shares, symbol, config.lot_size, holding=current_shares)
+                if 0 < current_shares - desired_shares and quantity == 0:
+                    record_issue(symbol, "SELL", "调整数量不足板块最低申报量", current_shares - desired_shares, current_shares - desired_shares)
                 blocked = bool(row.get("is_suspended", False)) or bool(
                     row.get("is_limit_down", False)
                 )
-                if quantity <= 0 or blocked:
+                if quantity <= 0:
+                    continue
+                if blocked:
+                    reason = (
+                        "停牌"
+                        if bool(row.get("is_suspended", False))
+                        else "跌停禁止卖出"
+                    )
+                    record_issue(symbol, "SELL", reason, quantity, quantity)
                     continue
                 price = raw_price * (1 - slippage)
                 gross = quantity * price
@@ -166,20 +218,28 @@ def run_backtest(
                 if symbol not in day.index:
                     continue
                 row = day.loc[symbol]
+                if _data_issue(row):
+                    continue  # The sell-first loop already recorded the blocked rebalance.
                 blocked = bool(row.get("is_suspended", False)) or bool(
                     row.get("is_limit_up", False)
                 )
-                if blocked:
-                    continue
                 raw_price = float(row["open"])
                 desired_value = open_equity * weight
-                desired_shares = int(
-                    np.floor(desired_value / raw_price / config.lot_size)
-                    * config.lot_size
-                )
-                quantity = desired_shares - shares.get(symbol, 0)
+                desired_shares = round_order(desired_value / raw_price, symbol, config.lot_size)
+                quantity = round_order(desired_shares - shares.get(symbol, 0), symbol, config.lot_size)
                 if quantity <= 0:
+                    if weight > 0 and (desired_shares > shares.get(symbol, 0) or desired_shares == 0):
+                        record_issue(symbol, "BUY", "目标金额不足一手（板块最低申报量）", 0, 0)
                     continue
+                if blocked:
+                    reason = (
+                        "停牌"
+                        if bool(row.get("is_suspended", False))
+                        else "涨停禁止买入"
+                    )
+                    record_issue(symbol, "BUY", reason, quantity, quantity)
+                    continue
+                requested_quantity = quantity
                 price = raw_price * (1 + slippage)
                 # Reduce by lots until cash covers price and commission.
                 while quantity > 0:
@@ -187,7 +247,18 @@ def run_backtest(
                     fee = _commission(gross, config)
                     if gross + fee <= cash:
                         break
-                    quantity -= config.lot_size
+                    minimum, step = order_unit(symbol, config.lot_size)
+                    quantity -= step
+                    if quantity < minimum:
+                        quantity = 0
+                if quantity < requested_quantity:
+                    record_issue(
+                        symbol,
+                        "BUY",
+                        "现金不足（含费用）",
+                        requested_quantity,
+                        requested_quantity - quantity,
+                    )
                 if quantity <= 0:
                     continue
                 gross = quantity * price
@@ -215,16 +286,24 @@ def run_backtest(
 
         market_value = 0.0
         for symbol, quantity in shares.items():
-            if symbol not in day.index:
-                continue
-            value = quantity * float(day.at[symbol, "close"])
+            stale = symbol not in day.index or not np.isfinite(day.at[symbol, "close"]) or day.at[symbol, "close"] <= 0
+            if stale:
+                price = last_marks[symbol]
+                issue_rows.append({"trade_date": trade_date, "signal_date": pd.NaT,
+                                   "symbol": symbol, "side": "VALUATION",
+                                   "reason": "缺少有效收盘价，暂沿用上次估值；禁止视为精确收益",
+                                   "requested_shares": None, "unfilled_shares": None})
+            else:
+                price = float(day.at[symbol, "close"])
+                last_marks[symbol] = price
+            value = quantity * price
             market_value += value
             position_rows.append(
                 {
                     "trade_date": trade_date,
                     "symbol": symbol,
                     "shares": quantity,
-                    "close": float(day.at[symbol, "close"]),
+                    "close": price,
                     "market_value": value,
                 }
             )
@@ -254,4 +333,16 @@ def run_backtest(
         equity=pd.DataFrame(equity_rows),
         trades=pd.DataFrame(trade_rows, columns=trade_columns),
         positions=pd.DataFrame(position_rows, columns=position_columns),
+        execution_issues=pd.DataFrame(
+            issue_rows,
+            columns=[
+                "trade_date",
+                "signal_date",
+                "symbol",
+                "side",
+                "reason",
+                "requested_shares",
+                "unfilled_shares",
+            ],
+        ),
     )

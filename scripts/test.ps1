@@ -6,5 +6,6 @@ if (-not (Test-Path -LiteralPath $Python)) {
 }
 Set-Location -LiteralPath $ProjectRoot
 & $Python scripts\doctor.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python scripts\run_tests.py
-
+exit $LASTEXITCODE

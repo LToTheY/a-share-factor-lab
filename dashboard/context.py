@@ -10,6 +10,7 @@ from quant_lab.dashboard import ArtifactStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports" / "generated" / "daily_factor_lab"
+DEFAULT_MARKET_FILE = PROJECT_ROOT / "data" / "processed" / "market_daily.parquet"
 
 
 @st.cache_resource
@@ -25,4 +26,4 @@ def store() -> ArtifactStore:
 def page_intro(title: str, description: str) -> None:
     st.title(title)
     st.caption(description)
-    st.info("研究用途 · 只读展示 · 不构成投资建议 · 不会发送真实交易指令")
+    st.caption("本地研究工作区 · 支持因子建档与沙盒实验 · 不会发送真实交易指令")

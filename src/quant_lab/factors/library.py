@@ -191,13 +191,21 @@ FACTOR_REGISTRY: dict[str, FactorFunction] = {
 
 def compute_factor(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     """Compute one named factor and return a canonical signal table."""
+    from quant_lab.factors.custom_loader import ensure_custom_factors_loaded
+
+    ensure_custom_factors_loaded()
     if name not in FACTOR_REGISTRY:
         raise KeyError(
             f"Unknown factor {name!r}; choose from {sorted(FACTOR_REGISTRY)}"
         )
     ordered = frame.sort_values(["symbol", "trade_date"]).copy()
-    values = FACTOR_REGISTRY[name](ordered)
     result = ordered[["trade_date", "symbol"]].copy()
+    if "research_segment" in ordered:
+        # Reset rolling windows at an unobserved session or broken adjustment chain.
+        ordered["symbol"] = ordered["symbol"].astype(str) + ":" + ordered["research_segment"].astype(str)
+    if "amount_outside_price_range" in ordered:
+        ordered.loc[ordered["amount_outside_price_range"], "amount"] = np.nan
+    values = FACTOR_REGISTRY[name](ordered)
     result["factor"] = values.to_numpy()
     if "in_universe" in ordered:
         result.loc[~ordered["in_universe"].to_numpy(), "factor"] = np.nan

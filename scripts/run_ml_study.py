@@ -13,6 +13,11 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from quant_lab.data.market_dataset import (
+    load_market_manifest,
+    load_research_market,
+    require_matching_dataset,
+)
 from quant_lab.models.settings import SUPPORTED_MODELS, load_ml_settings
 from quant_lab.research.ml_study import run_ml_study
 from quant_lab.research.settings import load_research_settings
@@ -48,15 +53,11 @@ def main() -> None:
             f"Missing processed market data: {market_path}. Run daily_update.ps1 first."
         )
 
+    require_matching_dataset(scores_path, market_path)
     scores = pd.read_parquet(scores_path)
-    scores.attrs["provider"] = "baostock_cached_factor_scores"
-    market = pd.read_parquet(market_path)
-    manifest_path = ROOT / research_settings.raw_dir / "update_manifest.json"
-    manifest = (
-        json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest_path.exists()
-        else {}
-    )
+    market = load_research_market(market_path)
+    scores.attrs.update(market.attrs)
+    manifest = load_market_manifest(market_path)
     output = ROOT / settings.output_dir
     summary = run_ml_study(
         scores,

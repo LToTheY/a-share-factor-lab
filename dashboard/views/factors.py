@@ -29,6 +29,8 @@ FACTOR_NOTES = {
 def render() -> None:
     page_intro("因子研究", "选择一个因子，依次检查预测方向、稳定性、覆盖率和最新截面。")
     artifacts = store()
+    from dashboard.research_runner import version_notice
+    version_notice(artifacts)
     try:
         summary = artifacts.csv("factor_summary.csv")
         names = summary["factor"].astype(str).tolist()
@@ -36,8 +38,19 @@ def render() -> None:
         st.error(str(exc))
         return
 
-    factor = st.selectbox("选择因子", names)
+    if not names:
+        st.info("尚无可用的因子诊断，请先生成日频研究报告。")
+        return
+    if st.session_state.get("selected_factor") not in names:
+        st.session_state["selected_factor"] = names[0]
+    factor = st.selectbox("选择因子", names, key="selected_factor")
     row = summary.loc[summary["factor"] == factor].iloc[0]
+    if artifacts.exists(f"quantiles_{factor}.csv"):
+        with st.expander("分层收益（未来收益标签，仅用于研究评价）"):
+            quantiles = artifacts.csv(f"quantiles_{factor}.csv")
+            label_cols = [c for c in quantiles if c.startswith("forward_return_")]
+            if label_cols:
+                st.dataframe(quantiles.groupby("quantile")[label_cols].mean().reset_index(), hide_index=True)
     st.markdown(f"**直观含义：** {FACTOR_NOTES.get(factor, '请结合因子库源码确认定义。')}")
 
     cols = st.columns(6)

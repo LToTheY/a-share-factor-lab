@@ -12,26 +12,30 @@ from quant_lab.dashboard import ArtifactError
 
 def render() -> None:
     page_intro("系统总览", "先确认数据是否新鲜、研究是否完整，再阅读任何收益指标。")
+    st.info("这里展示已保存的历史研究报告。查看本次是否需要调仓，请进入“今日调仓检查”，先更新数据。")
     artifacts = store()
     try:
         summary = artifacts.json("summary.json")
-        status = artifacts.json("run_status.json")
+        status = artifacts.json("result_manifest.json") if artifacts.exists("result_manifest.json") else {}
     except ArtifactError as exc:
         st.error(str(exc))
-        st.code(".\\scripts\\daily_update.ps1", language="powershell")
+        st.info("下一步：进入左侧“运行因子研究”。没有国泰安账号时勾选合成数据演示，完成后打开报告。")
+        st.code(".\\.venv\\Scripts\\python.exe scripts\\run_factor_suite.py", language="powershell")
         return
 
     data = status.get("data", {})
+    from dashboard.research_runner import version_notice
+    version_notice(artifacts)
     portfolio = summary.get("portfolio", {})
     benchmark = summary.get("benchmark", {})
     composite = summary.get("composite", {})
 
     first = st.columns(5)
     first[0].metric("数据截止日", data.get("complete_through", summary.get("end_date", "—")))
-    first[1].metric("当前股票数", number(data.get("symbols"), 0))
+    first[1].metric("数据来源", summary.get("data_source", "未记录"))
     first[2].metric("因子数量", number(summary.get("factor_count"), 0))
-    first[3].metric("数据审计", "通过" if status.get("audit_passed") else "未通过")
-    first[4].metric("订单状态", status.get("order_status", "—"))
+    first[3].metric("研究状态", "已完成" if status.get("status") == "succeeded" else "历史报告")
+    first[4].metric("股票池", status.get("provenance", {}).get("universe", "旧报告未记录"))
 
     st.subheader("研究结论概览")
     second = st.columns(5)

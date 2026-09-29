@@ -3,7 +3,7 @@ project:
 
 data:
   scores_file: reports/generated/daily_factor_lab/factor_scores.parquet
-  market_file: data/processed/baostock_daily.parquet
+  market_file: data/processed/market_daily.parquet
   research_config: configs/research.yaml
 
 features:

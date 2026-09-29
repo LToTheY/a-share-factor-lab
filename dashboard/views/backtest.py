@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
+from dashboard.backtest_details import conditions, ledger
 from dashboard.components import drawdown_figure, equity_figure, number, pct
 from dashboard.context import page_intro, store
 from quant_lab.dashboard import ArtifactError
 
 
 def render() -> None:
-    page_intro("回测分析", "同时查看收益、回撤、换手和交易成本，不用单一收益率判断策略。")
+    page_intro(
+        "回测分析", "同时查看收益、回撤、换手和交易成本，不用单一收益率判断策略。"
+    )
     artifacts = store()
     try:
         summary = artifacts.json("summary.json")
@@ -22,6 +26,35 @@ def render() -> None:
 
     portfolio = summary.get("portfolio", {})
     benchmark = summary.get("benchmark", {})
+    settings = summary.get("research_settings", {})
+    conditions(
+        {
+            "actual_start": str(strategy.trade_date.min().date()),
+            "actual_end": str(strategy.trade_date.max().date()),
+            "created_at": summary.get("generated_at", "旧报告未记录"),
+            "strategy": {
+                "factor_weights": {
+                    item["name"]: item["direction"]
+                    for item in settings.get("factors", [])
+                },
+                "rebalance_frequency": summary.get("rebalance_frequency", "未记录"),
+                "top_n": summary.get("top_n"),
+                "exit_rank": summary.get("exit_rank"),
+                "max_weight": settings.get("max_weight", "未记录"),
+            },
+            "backtest": summary.get("backtest_config", {}),
+            "provenance": {
+                "data_end": summary.get("end_date", "未记录"),
+                "execution_timing": summary.get("execution_timing", "旧报告未记录"),
+                "universe": "报告记录的股票池筛选参数见下方"
+                if settings
+                else "旧报告未保存股票池参数",
+                "research_settings": settings,
+                "data_source": summary.get("data_source", "未记录"),
+                "benchmark": benchmark.get("definition", "未记录"),
+            },
+        }
+    )
     cols = st.columns(6)
     cols[0].metric("策略总收益", pct(portfolio.get("total_return")))
     cols[1].metric("策略年化", pct(portfolio.get("annual_return")))
@@ -46,10 +79,21 @@ def render() -> None:
     with left:
         st.subheader("最近交易")
         try:
-            trades = artifacts.csv("trades.csv").sort_values("trade_date", ascending=False)
+            trades = artifacts.csv("trades.csv").sort_values(
+                "trade_date", ascending=False
+            )
             useful = [
                 name
-                for name in ("trade_date", "signal_date", "symbol", "side", "shares", "price", "fee", "tax")
+                for name in (
+                    "trade_date",
+                    "signal_date",
+                    "symbol",
+                    "side",
+                    "shares",
+                    "price",
+                    "fee",
+                    "tax",
+                )
                 if name in trades.columns
             ]
             st.dataframe(trades[useful].head(100), width="stretch", hide_index=True)
@@ -70,10 +114,28 @@ def render() -> None:
         except (ArtifactError, ValueError) as exc:
             st.info(str(exc))
 
+    replay_tables = {}
+    for name in ("target_weights", "trades", "positions", "execution_issues"):
+        try:
+            replay_tables[name] = artifacts.csv(f"{name}.csv")
+        except ArtifactError as exc:
+            replay_tables[name] = pd.DataFrame()
+            if name != "execution_issues":
+                st.info(str(exc))
+    ledger(
+        strategy,
+        replay_tables["target_weights"],
+        replay_tables["trades"],
+        replay_tables["positions"],
+        replay_tables["execution_issues"],
+        key="formal_replay_date",
+        issues_available=artifacts.exists("execution_issues.csv"),
+    )
+
     with st.expander("回测边界", expanded=True):
         st.markdown(
             f"""
-            - 基准定义：{benchmark.get('definition', '见研究报告')}
+            - 基准定义：{benchmark.get("definition", "见研究报告")}
             - 回测是历史模拟，不是收益承诺。
             - 需要继续检查未来函数、幸存者偏差、成本假设、涨跌停和停牌约束。
             - 当前页面只读取已有回测文件，不允许从浏览器修改模拟账户或发送订单。

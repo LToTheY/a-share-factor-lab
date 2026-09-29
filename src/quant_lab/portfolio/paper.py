@@ -140,9 +140,8 @@ def build_next_day_orders(
         price = float(close_map.get(symbol, np.nan))
         weight = float(target.get("target_weight", 0.0))
         if weight and np.isfinite(price) and price > 0:
-            target_shares = int(
-                np.floor(account_value * weight / price / lot_size) * lot_size
-            )
+            from quant_lab.backtest.lot_rules import round_order
+            target_shares = round_order(account_value * weight / price, symbol, lot_size)
         else:
             target_shares = 0
         delta = target_shares - current

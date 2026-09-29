@@ -6,4 +6,4 @@ if (-not (Test-Path -LiteralPath $Python)) {
 }
 Set-Location -LiteralPath $ProjectRoot
 & $Python -u scripts\daily_update.py @args
-
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

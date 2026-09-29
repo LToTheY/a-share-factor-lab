@@ -23,7 +23,7 @@ src/quant_lab/data/schema.py
 本机完整路径是：
 
 ```text
-C:\Users\lenovo\Desktop\水滴石穿\a-share-factor-lab\src\quant_lab\data\schema.py
+<项目目录>\src\quant_lab\data\schema.py
 ```
 
 目录结构：
@@ -159,7 +159,7 @@ src → quant_lab → data → schema.py
 编辑器应使用：
 
 ```text
-C:\Users\lenovo\Desktop\水滴石穿\a-share-factor-lab\.venv\Scripts\python.exe
+<项目目录>\.venv\Scripts\python.exe
 ```
 
 若选到系统Python或旧项目虚拟环境，转到定义可能失败，甚至跳到旧目录。

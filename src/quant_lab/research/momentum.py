@@ -45,9 +45,11 @@ def _prepare_momentum(
     ordered = market.sort_values(["symbol", "trade_date"]).copy()
     base_columns = ["trade_date", "symbol", "close", "in_universe"]
     optional_columns = [
-        column for column in ["market_cap", "industry"] if column in ordered
+        column for column in ["market_cap", "industry", "research_segment"] if column in ordered
     ]
     result = ordered[base_columns + optional_columns].copy()
+    if "research_segment" in ordered:
+        ordered["symbol"] = ordered["symbol"].astype(str) + ":" + ordered["research_segment"].astype(str)
     result["factor"] = momentum(ordered, lookback, skip).to_numpy()
     result.loc[~result["in_universe"], "factor"] = np.nan
     if neutralize_size is None:

@@ -8,6 +8,7 @@ pyarrow>=14,<24
 tushare>=1.4,<2
 python-dotenv>=1,<2
 duckdb>=1,<2
+wrds>=3.3,<4
 matplotlib>=3.8,<4
 seaborn>=0.13,<1
 scipy>=1.10,<2

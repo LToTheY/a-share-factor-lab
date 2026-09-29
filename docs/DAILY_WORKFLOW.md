@@ -1,4 +1,7 @@
-# 免费真实数据：每日收盘后工作流
+# CSMAR优先、BaoStock补缺：每日调仓检查
+
+更新于2026-09-29。日常检查与完整历史研究分开运行。看板中进入“今日调仓检查”，
+点击“更新数据并检查调仓”；命令行入口如下。未连接券商，不会发送真实交易指令。
 
 ## 每天运行
 
@@ -15,26 +18,38 @@
 系统自动完成：
 
 ```text
-补充后复权价格（因子）与不复权价格（成交）
-→ 更新中证500成分快照和交易日历
-→ 完整性、新鲜度、状态与价格审计
-→ 11个普通价量因子逐个评价
-→ 因子相关性与等权综合分
-→ Top 20 / Rank 30缓冲目标持仓
-→ 日频数据回测
-→ 最新排名与下一交易日纸面操作清单
+北京时间和交易日历确定最新已完成交易日
+→ 联网确认沪深300、中证500当前成分及上市日期
+→ 复用本地CSMAR/BaoStock，增量补日期并重新核对最新一天
+→ 同步补沪深300、中证500指数日线，避免股票与对照指数日期错位
+→ 验证当前研究池及已有持仓的最新截面、121交易日因子窗口
+→ 明确停牌记录补零成交量额，其他缺失拒绝发布建议
+→ 不复权价配合交易所昨收，统一计算连续区间复权价
+→ 计算最新11个因子、覆盖率与等权综合分
+→ 根据模拟账户实际持仓形成Top 20 / Rank 30缓冲目标
+→ 输出无需调仓（NO_TRADE）或需人工复核（REVIEW_REQUIRED）
 ```
 
 每天优先看：
 
-1. `reports/generated/daily_factor_lab/run_status.json`
-2. `reports/generated/daily_factor_lab/latest_signal.csv`
-3. `reports/generated/daily_factor_lab/next_day_orders.csv`
-4. `reports/generated/daily_factor_lab/REPORT.md`
-5. `data/processed/baostock_daily_audit/audit.md`
+1. `data/state/current_check.json`：本次状态、目标交易日、检查结果、配置指纹及报告路径。
+2. `reports/generated/current_check/runs/<run_id>/latest_signal.csv`：本次最新排名。
+3. `reports/generated/current_check/runs/<run_id>/next_day_orders.csv`：本次纸面建议。
+4. `reports/generated/current_check/next_day_orders.csv`：便于查看的当前副本；失败时写入
+   `DATA_NOT_READY`，不会让旧买卖清单继续充当本轮结果。
+5. `data/processed/current_market.parquet`：通过检查的近期共享行情窗口。
 
-报告同时给出历史时点成分股等权、每日再平衡且不计成本的诊断基准。它用于检查策略
-是否只是市场暴露，不是官方中证500指数，也不是可直接复制的投资组合。
+看板每次打开都会根据交易日历重新检查结果是否过期，配置或模拟持仓变动也会要求
+重算。默认18:00以后要求当天日线；盘中使用上一交易日，不把未收盘行情当日线。
+该更新时间是保守运行约定，并非保证供应商18:00已发布：未发布时仍会阻止建议。
+
+完整历史报告与Walk-forward继续保留在 `reports/generated/daily_factor_lab/`。
+日常检查不会拿当前成分股倒推历史业绩，也不会每天重复十年回测。
+
+历史研究正式读取 `data/processed/market_daily.parquet`，旧行情入口已停用。
+需要同步完整历史报告时运行 `.\scripts\daily_update.ps1 --full-research`；只重算本地
+因子时运行 `scripts/run_factor_suite.py`。数据目录、来源、质量标记和恢复记录见
+[当前数据使用说明](DATA_USAGE.md)。
 
 `latest_signal.csv`每天都会更新。默认`W-FRI`周频调仓，因此普通工作日的
 `next_day_orders.csv`会明确写`NO_TRADE`。改成日频后，排名缓冲仍可能让当天没有订单。
@@ -56,21 +71,28 @@ portfolio:
 rebalance_frequency: D
 ```
 
-不要修改Python里的数字。配置文件是唯一真源，运行时副本会保存为
-`effective_config.yaml`，报告中的Top-N必须与它一致。
+不要修改Python里的数字。配置文件是唯一真源，当前检查保存配置SHA256；运行中
+配置或持仓改变会拒绝发布结果。完整历史报告另保存 `effective_config.yaml`。
 
 ## 两套价格
 
-- 后复权`adj_open/adj_close`：因子、标签和收益研究。
+- `adj_open/adj_close`：以原始价与交易所昨收统一构造，因子只跨连续观测区间计算。
 - 不复权`open/close`：第二天参考价、整手股数、佣金和现金账本。
 
-第一次会为历年中证500成员建立自2015-01-01起的长历史库，同时保存不复权与后复权
-行情。2015年用于滚动指标预热，正式评价从2016年开始。之后两套价格只请求本地缺失的
-前缀或最后日期后的增量，不会每天重下十年数据。
+每次复用本地历史，仅补当前池和持仓所需窗口及缺口，且重新查询最新交易日，避免
+先前的部分截面缓存被误认为完整。原始值逐字段优先CSMAR、其次BaoStock，保留来源；
+财报、市值与行业尚未验收的字段不会自动加入当前价量模型。
+
+调整方法依据[BaoStock复权说明](https://www.baostock.com/helpdocs/pdf/BaoStock%E5%A4%8D%E6%9D%83%E5%9B%A0%E5%AD%90%E7%AE%80%E4%BB%8B.pdf)，
+是价格收益研究近似，不等于现金分红再投资账本。
+涨跌停规则按日期处理：创业板/科创板的20%不被ST的旧5%分支覆盖；沪深主板ST
+自2026-07-06改为10%，以[上交所正式发布](https://www.sse.com.cn/aboutus/mediacenter/hotandd/c/c_20260424_10816474.shtml)
+和[深交所交易规则](https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf)
+为依据。特殊复牌等无法确认的情形标记未知并阻止本次建议。
 
 ## 纸面账户
 
-首次运行会建立：
+当前检查读取以下模拟账户，不自动创建或覆盖持仓：
 
 ```text
 data/state/paper_portfolio.json
@@ -88,6 +110,10 @@ data/state/paper_portfolio.json
 
 下一次运行会根据这份真实纸面持仓计算买卖差额。没有写出的股票视为零持仓，因此每次
 要把所有持仓都列全。
+
+若没有该文件，当前检查只以研究配置的初始资金和空仓进行纸面演示，并在界面明确
+标注模拟账户。用于个人资金判断前，应先填好自己的资金与完整持仓，不能把项目默认
+的100万元研究资金当作实际可投入金额。
 
 ## 安全边界
 

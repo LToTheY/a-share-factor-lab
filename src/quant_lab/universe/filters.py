@@ -31,8 +31,11 @@ def build_universe_mask(
     config = config or UniverseConfig()
     require_columns(frame, ["trade_date", "symbol", "amount"])
     ordered = frame.sort_values(["symbol", "trade_date"])
-    trading_age = ordered.groupby("symbol", sort=False).cumcount() + 1
+    trading_age = (ordered["listing_age_sessions"] + 1 if "listing_age_sessions" in ordered
+                   else ordered.groupby("symbol", sort=False).cumcount() + 1)
     mask = trading_age >= config.min_listed_days
+    if "is_usable_market_data" in ordered:
+        mask &= ordered["is_usable_market_data"].fillna(False)
 
     if config.exclude_st and "is_st" in ordered:
         mask &= ~ordered["is_st"].fillna(False)

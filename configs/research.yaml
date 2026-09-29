@@ -3,14 +3,14 @@ project:
   output_dir: reports/generated/daily_factor_lab
 
 data:
-  source: baostock
+  source: csmar_baostock
   # 长历史负责跨周期检验；正式评价从2016年开始，2015年作为滚动因子预热期。
   history_start_date: "2015-01-01"
   research_start_date: "2016-01-01"
   membership_frequency: "W-FRI"
   initial_calendar_days: 800
-  raw_dir: data/raw/baostock_daily
-  processed_file: data/processed/baostock_daily.parquet
+  raw_dir: data/raw/market_reference
+  processed_file: data/processed/market_daily.parquet
   max_stale_trading_days: 1
   required_latest_coverage: 0.98
 
@@ -74,3 +74,9 @@ validation:
   embargo_trading_days: 5
   recent_ic_windows: [63, 126, 252, 756, 1260]
   live_start_date: "2026-09-10"
+
+# Each daily run refreshes prices and checks the full factor window before
+# publishing a current paper proposal. These are daily bars, not live quotes.
+current_check:
+  data_ready_hour: 18
+  lookback_sessions: 260

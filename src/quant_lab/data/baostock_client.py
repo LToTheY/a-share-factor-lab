@@ -46,7 +46,7 @@ def price_limit_ratio(
     newly_listed = listing_age_sessions is not None and listing_age_sessions < 5
     no_limit_new_listing = newly_listed and (
         number.startswith("688")
-        or (number.startswith("300") and trade_date >= pd.Timestamp("2020-08-24"))
+        or (number.startswith("30") and trade_date >= pd.Timestamp("2020-08-24"))
         or (
             number.startswith(("60", "00"))
             and trade_date >= pd.Timestamp("2023-04-10")
@@ -54,12 +54,14 @@ def price_limit_ratio(
     )
     if no_limit_new_listing:
         return None
-    if is_st:
-        return 0.05
     if number.startswith("688"):
         return 0.20
-    if number.startswith("300") and trade_date >= pd.Timestamp("2020-08-24"):
+    if number.startswith("30") and trade_date >= pd.Timestamp("2020-08-24"):
         return 0.20
+    # SSE/SZSE 2026 trading rules, effective 2026-07-06. Growth/STAR
+    # risk-warning shares retain their board's 20% limit.
+    if is_st and trade_date < pd.Timestamp("2026-07-06"):
+        return 0.05
     return 0.10
 
 
@@ -173,6 +175,17 @@ class BaoStockDownloader:
         rows = []
         while result.next():
             rows.append(result.get_row_data())
+        if result.error_code != "0":
+            raise RuntimeError(f"BaoStock {endpoint} failed while reading pages")
+        # The SDK can return False after a pagination timeout without changing
+        # error_code. A successfully consumed final page is short or empty;
+        # retaining a full exhausted page means completion was not confirmed.
+        from baostock.common.contants import BAOSTOCK_PER_PAGE_COUNT
+
+        page = getattr(result, "data", None)
+        if (isinstance(page, list) and len(page) == BAOSTOCK_PER_PAGE_COUNT
+                and getattr(result, "cur_row_num", 0) >= len(page)):
+            raise RuntimeError(f"BaoStock {endpoint} pagination ended without confirmation")
         return pd.DataFrame(rows, columns=result.fields)
 
     def trade_calendar(self, start_date: str, end_date: str) -> pd.DataFrame:
@@ -183,9 +196,22 @@ class BaoStockDownloader:
         return frame[["trade_date", "is_trading_day"]]
 
     def zz500_snapshot(self, trade_date: str | None = None) -> pd.DataFrame:
+        return self.index_snapshot("000905.SH", trade_date)
+
+    def index_snapshot(
+        self, index_code: str, trade_date: str | None = None
+    ) -> pd.DataFrame:
+        """Get a provider-dated HS300/CSI500 snapshot, preserving effective dates."""
+        endpoints = {
+            "000300.SH": "query_hs300_stocks",
+            "000905.SH": "query_zz500_stocks",
+        }
+        if index_code not in endpoints:
+            raise ValueError(f"Unsupported index: {index_code}")
         kwargs = {"date": trade_date} if trade_date else {}
-        result = self.bs.query_zz500_stocks(**kwargs)
-        frame = self._to_frame(result, "query_zz500_stocks")
+        endpoint = endpoints[index_code]
+        result = getattr(self.bs, endpoint)(**kwargs)
+        frame = self._to_frame(result, endpoint)
         if frame.empty:
             return pd.DataFrame(columns=["trade_date", "symbol", "weight"])
         date_column = "updateDate" if "updateDate" in frame else "date"

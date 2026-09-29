@@ -20,7 +20,7 @@ from quant_lab.universe.filters import attach_index_membership
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", default="data/raw/baostock")
+    parser.add_argument("--input", default="data/raw/baostock_example")
     parser.add_argument(
         "--output", default="data/processed/baostock_zz500_daily.parquet"
     )

@@ -26,6 +26,12 @@ def latest_completed_session(
     market_data_ready_hour: int = 18,
 ) -> pd.Timestamp:
     """Return the latest session whose daily vendor data should be available."""
+    as_of = pd.Timestamp(as_of)
+    if as_of.tzinfo is not None:
+        as_of = as_of.tz_convert("Asia/Shanghai").tz_localize(None)
+    all_dates = pd.to_datetime(calendar["trade_date"])
+    if all_dates.empty or all_dates.max() < as_of.normalize():
+        raise ValueError("Trading calendar does not cover the current Shanghai date")
     open_dates = pd.to_datetime(
         calendar.loc[calendar["is_trading_day"], "trade_date"]
     ).sort_values()

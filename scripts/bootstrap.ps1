@@ -23,4 +23,5 @@ $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 & $VenvPython -m pip install -e ".[${Extras}]"
 & $VenvPython scripts\doctor.py
 & $VenvPython scripts\run_tests.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "环境已完成：$VenvPython"

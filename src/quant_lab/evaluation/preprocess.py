@@ -10,6 +10,8 @@ from quant_lab.data.schema import require_columns
 
 def winsorize_mad(values: pd.Series, n_mad: float = 5.0) -> pd.Series:
     """Clip a cross-section using median absolute deviation."""
+    if not values.notna().any():
+        return values.copy()
     median = values.median()
     mad = (values - median).abs().median()
     if pd.isna(mad) or mad == 0:

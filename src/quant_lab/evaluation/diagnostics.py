@@ -18,7 +18,8 @@ def add_forward_returns(
     if periods <= 0:
         raise ValueError("periods must be positive")
     result = frame.sort_values(["symbol", "trade_date"]).copy()
-    future = result.groupby("symbol", sort=False)[price_col].shift(-periods)
+    groups = ["symbol", "research_segment"] if "research_segment" in result else ["symbol"]
+    future = result.groupby(groups, sort=False)[price_col].shift(-periods)
     result[f"forward_return_{periods}d"] = future / result[price_col] - 1.0
     return result.sort_values(["trade_date", "symbol"]).reset_index(drop=True)
 

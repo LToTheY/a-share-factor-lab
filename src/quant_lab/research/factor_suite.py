@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -61,9 +63,12 @@ def run_factor_suite(
     settings: ResearchSettings,
     output_dir: str | Path,
     next_trading_date: str | pd.Timestamp | None,
+    progress=None,
 ) -> tuple[dict[str, Any], pd.DataFrame, pd.DataFrame]:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    if market.attrs.get("provider") == "csmar_baostock" and (settings.neutralize_size or settings.neutralize_industry):
+        raise ValueError("市值及历史行业口径尚未验收，不能启用对应中性化")
     prepared = _prepare_market(market, settings)
     labels = add_forward_returns(
         prepared, settings.forward_periods, price_col="adj_close"
@@ -86,6 +91,9 @@ def run_factor_suite(
             exposure_columns.append(column)
     exposures = prepared[exposure_columns]
     for definition in settings.factors:
+        if progress:
+            progress(f"计算因子 {definition.name}")
+        print(f"Research factor: {definition.name}", flush=True)
         factor = compute_factor(prepared, definition.name).merge(
             exposures,
             on=["trade_date", "symbol"],
@@ -100,11 +108,13 @@ def run_factor_suite(
             neutralize_industry=settings.neutralize_industry,
         ).merge(labels, on=["trade_date", "symbol"], how="left", validate="one_to_one")
         daily_coverage = factor.groupby("trade_date").apply(
-            lambda group: float(
-                group.loc[group["in_universe"], "factor_processed"].notna().mean()
-            )
-            if group["in_universe"].any()
-            else float("nan"),
+            lambda group: (
+                float(
+                    group.loc[group["in_universe"], "factor_processed"].notna().mean()
+                )
+                if group["in_universe"].any()
+                else float("nan")
+            ),
             include_groups=False,
         )
         coverage_rows.extend(
@@ -113,8 +123,7 @@ def run_factor_suite(
                 "factor": definition.name,
                 "coverage": coverage,
                 "meets_threshold": bool(
-                    pd.notna(coverage)
-                    and coverage >= settings.minimum_factor_coverage
+                    pd.notna(coverage) and coverage >= settings.minimum_factor_coverage
                 ),
             }
             for date, coverage in daily_coverage.items()
@@ -145,6 +154,7 @@ def run_factor_suite(
             groups=settings.groups,
         )
         group_means = groups.groupby("quantile")[label_col].mean()
+        groups.to_csv(output / f"quantiles_{definition.name}.csv", index=False)
         spread = (
             float(group_means.iloc[-1] - group_means.iloc[0])
             if len(group_means) >= 2
@@ -165,6 +175,8 @@ def run_factor_suite(
         )
 
     valid_count = score_table[score_names].notna().sum(axis=1)
+    if progress:
+        progress("组合回测与诊断")
     minimum_factors = settings.minimum_valid_factors
     score_table["valid_factor_count"] = valid_count
     score_table["composite_raw"] = score_table[score_names].mean(axis=1)
@@ -172,9 +184,9 @@ def run_factor_suite(
     score_table["factor_processed"] = score_table.groupby("trade_date")[
         "composite_raw"
     ].transform(zscore)
-    score_table.loc[
-        score_table["trade_date"] < research_start, "factor_processed"
-    ] = pd.NA
+    score_table.loc[score_table["trade_date"] < research_start, "factor_processed"] = (
+        pd.NA
+    )
     score_table = score_table.merge(labels, on=["trade_date", "symbol"], how="left")
     score_table = score_table.merge(
         prepared[["trade_date", "symbol", "close", "in_universe"]],
@@ -233,15 +245,14 @@ def run_factor_suite(
         label_col,
         [int(value) for value in settings.validation.get("recent_ic_windows", [])],
     )
-    stability.to_csv(
-        output / "factor_stability.csv", index=False, encoding="utf-8-sig"
-    )
+    stability.to_csv(output / "factor_stability.csv", index=False, encoding="utf-8-sig")
     score_table.to_parquet(output / "factor_scores.parquet", index=False)
     latest.to_csv(output / "latest_signal.csv", index=False, encoding="utf-8-sig")
     targets.to_csv(output / "target_weights.csv", index=False, encoding="utf-8-sig")
     result.equity.to_csv(output / "equity.csv", index=False)
     result.trades.to_csv(output / "trades.csv", index=False)
     result.positions.to_csv(output / "positions.csv", index=False)
+    result.execution_issues.to_csv(output / "execution_issues.csv", index=False)
     benchmark.to_csv(output / "benchmark_equity.csv", index=False)
     write_line_svg(composite_ic, output / "composite_ic.svg", "Composite daily RankIC")
     write_line_svg(
@@ -258,8 +269,15 @@ def run_factor_suite(
         output / "walk_forward",
         next_trading_date=next_trading_date,
     )
+    if progress:
+        progress("写入研究结果")
     summary = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "research_settings": asdict(settings),
+        "backtest_config": asdict(backtest_config),
+        "execution_timing": "收盘后信号，下一交易日开盘成交",
         "data_source": market.attrs.get("provider", "external"),
+        "dataset_id": market.attrs.get("dataset_id"),
         "start_date": str(pd.Timestamp(market["trade_date"].min()).date()),
         "research_start_date": str(research_start.date()),
         "end_date": str(latest_date.date()),
@@ -279,8 +297,7 @@ def run_factor_suite(
         "benchmark": {
             **benchmark_metrics,
             "definition": (
-                "point-in-time constituent equal-weight, daily rebalanced, "
-                "before costs"
+                "point-in-time constituent equal-weight, daily rebalanced, before costs"
             ),
         },
         "annual_excess_return_vs_benchmark": (
@@ -333,4 +350,9 @@ def run_factor_suite(
 - 历史中证500成分按周采样并在周内沿用最近一次已知名单；指数调整生效日附近可能有少量时点误差。
 """
     (output / "REPORT.md").write_text(report, encoding="utf-8")
+    (output / "dataset_provenance.json").write_text(
+        json.dumps({"dataset_id": market.attrs.get("dataset_id"), "provider": summary["data_source"],
+                    "end_date": summary["end_date"], "generated_at": summary["generated_at"]}, indent=2),
+        encoding="utf-8",
+    )
     return summary, latest, targets

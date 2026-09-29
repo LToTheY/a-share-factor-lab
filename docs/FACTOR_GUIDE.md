@@ -36,11 +36,16 @@
 
 ## 如何加入自己的因子
 
+推荐使用新的 Python 自定义因子入口：在 `src/quant_lab/factors/custom/` 保存 `.py`
+文件，然后在前端“因子库 → 日频 → 更新代码因子”点击加载。
+页面内有完整教程、可复制/下载模板、独立研究配置和研究结果切换入口。
+详见 [自定义因子教程](CUSTOM_FACTORS.md)。下面保留内置库的维护方法。
+
 1. 在`src/quant_lab/factors/library.py`写函数，必须先按`symbol`分组再rolling/shift。
 2. 加到`FACTOR_REGISTRY`。
 3. 在`configs/research.yaml`的`definitions`加入名称和事先约定的方向。
 4. 添加测试，至少检查股票之间不串值、窗口缺失期和输入排序。
-5. 运行`daily_update.ps1`，同时检查因子IC、分层、换手和相关性，不只看回测收益。
+5. 运行`scripts/run_factor_suite.py`，用已保存的历史数据检查因子IC、分层、换手和相关性，不只看回测收益。`daily_update.ps1`用于最新行情与当期纸面调仓检查，不重建完整历史报告。
 
 【面试高频】不能在全样本看到IC为负后直接把因子乘以-1，再声称样本外有效。因子方向
 必须来自经济假设或只在训练窗口确定，然后在后续时间窗口冻结验证。

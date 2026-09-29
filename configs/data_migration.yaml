@@ -1,0 +1,51 @@
+# Raw acquisition/storage settings. Active price research now uses market_daily.parquet.
+history_start: "2015-01-01"
+research_start: "2016-01-01"
+frequency: daily
+indices:
+  - "000300.SH"
+  - "000905.SH"
+membership_frequency: W-FRI
+# Five old CSI500 requests were re-queried: provider still returns 499 members.
+# This permits acquiring their union, while retaining explicit shortfall flags.
+# It does not certify a complete historical constituent panel for backtesting.
+allow_one_missing_member_for_download_scope: true
+preferred_provider: csmar
+fallback_provider: baostock
+
+storage:
+  # Decimal GB, including existing data and temporary files under data/.
+  data_budget_gb: 10
+  minimum_free_gb: 10
+  preferred_new_data_gb: 5
+  reference_dir: data/raw/market_reference
+  csmar_dir: data/raw/csmar
+  staged_dir: data/processed/csmar_staging
+  catalog_file: data/state/wrds_csmar_catalog.json
+
+# Actual WRDS names, units and announcement dates must come from the account's
+# catalog/data dictionary. No guessed schema or field mapping is activated.
+csmar_mapping_status: price_research_active_financial_semantics_pending
+# User requested the full CSMAR scope first; BaoStock prices are filled later.
+download_mode: bulk
+baostock_market_fill: observed_sessions_filled_through_2026_09_29
+current_daily_check: active_csmar_priority_baostock_fallback
+modules:
+  - daily_prices_and_returns
+  - historical_index_membership
+  - historical_trading_status
+  - market_cap_and_industry
+  - financial_statements_with_announcement_dates
+excluded:
+  - minute_bars
+  - tick_data
+  - full_text_announcements
+  - full_text_research_reports
+
+acceptance:
+  require_source_provenance: true
+  require_unit_verification: true
+  require_adjustment_verification: true
+  require_historical_membership: true
+  require_cross_provider_comparison: true
+  delete_legacy_only_after_acceptance: true

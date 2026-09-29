@@ -54,7 +54,7 @@ def run_walk_forward(
     step_years = int(config.get("step_years", test_years))
     if min(train_years, validation_years, test_years, step_years) < 1:
         raise ValueError("All walk-forward window lengths must be positive")
-    embargo = int(config.get("embargo_trading_days", settings.forward_periods))
+    embargo = max(settings.forward_periods, int(config.get("embargo_trading_days", settings.forward_periods)))
     work = scores.copy()
     work["trade_date"] = pd.to_datetime(work["trade_date"])
     first_year = pd.Timestamp(

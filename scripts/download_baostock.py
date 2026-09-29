@@ -17,7 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", default="2025-01-01")
     parser.add_argument("--end", default="2025-12-31")
-    parser.add_argument("--output", default="data/raw/baostock")
+    parser.add_argument("--output", default="data/raw/baostock_example")
     args = parser.parse_args()
     output = Path(args.output)
     if not output.is_absolute():

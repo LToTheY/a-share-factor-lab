@@ -141,7 +141,7 @@ class ArtifactStore:
     def health(self) -> list[dict[str, str]]:
         required = [
             "summary.json",
-            "run_status.json",
+            "dataset_provenance.json",
             "factor_summary.csv",
             "factor_scores.parquet",
             "equity.csv",

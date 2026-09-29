@@ -3,6 +3,7 @@ import unittest
 import pandas as pd
 
 from quant_lab.data.baostock_client import (
+    BaoStockDownloader,
     baostock_to_symbol,
     derive_open_limit_flags,
     price_limit_ratio,
@@ -11,6 +12,17 @@ from quant_lab.data.baostock_client import (
 
 
 class BaoStockAdapterTest(unittest.TestCase):
+    def test_pagination_timeout_is_not_treated_as_complete_history(self) -> None:
+        from types import SimpleNamespace
+
+        from baostock.common.contants import BAOSTOCK_PER_PAGE_COUNT
+
+        result = SimpleNamespace(error_code="0", fields=["close"], next=lambda: False,
+                                 data=[["10"]] * BAOSTOCK_PER_PAGE_COUNT,
+                                 cur_row_num=BAOSTOCK_PER_PAGE_COUNT)
+        with self.assertRaisesRegex(RuntimeError, "pagination"):
+            BaoStockDownloader._to_frame(result, "test")
+
     def test_symbol_conversion_round_trip(self) -> None:
         self.assertEqual(baostock_to_symbol("sh.600000"), "600000.SH")
         self.assertEqual(symbol_to_baostock("000001.SZ"), "sz.000001")
@@ -43,6 +55,12 @@ class BaoStockAdapterTest(unittest.TestCase):
         self.assertTrue(bool(result.loc[0, "is_limit_up"]))
         self.assertTrue(bool(result.loc[1, "is_limit_up"]))
         self.assertTrue(bool(result["limit_status_known"].all()))
+
+    def test_growth_st_limits_and_2026_main_board_change(self) -> None:
+        self.assertEqual(price_limit_ratio("301001.SZ", pd.Timestamp("2025-01-01"), True), 0.20)
+        self.assertEqual(price_limit_ratio("688001.SH", pd.Timestamp("2025-01-01"), True), 0.20)
+        self.assertEqual(price_limit_ratio("600000.SH", pd.Timestamp("2026-07-03"), True), 0.05)
+        self.assertEqual(price_limit_ratio("600000.SH", pd.Timestamp("2026-07-06"), True), 0.10)
 
     def test_first_five_sessions_can_be_unlimited_under_new_rules(self) -> None:
         self.assertIsNone(

@@ -28,7 +28,8 @@ def equal_weight_benchmark(
     if initial_cash <= 0:
         raise ValueError("initial_cash must be positive")
     work = market.sort_values(["symbol", "trade_date"]).copy()
-    work["benchmark_return"] = work.groupby("symbol", sort=False)[
+    groups = ["symbol", "research_segment"] if "research_segment" in work else ["symbol"]
+    work["benchmark_return"] = work.groupby(groups, sort=False)[
         price_col
     ].pct_change(fill_method=None)
     eligible = work[eligibility_col].fillna(False).astype(bool)

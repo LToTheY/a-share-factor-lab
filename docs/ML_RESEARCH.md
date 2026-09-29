@@ -16,11 +16,13 @@
 
 ## 运行
 
-先完成真实数据和普通因子更新：
+先使用已保存且验收过的历史数据生成普通因子研究产物：
 
 ```powershell
-.\scripts\daily_update.ps1
+.\.venv\Scripts\python.exe scripts\run_factor_suite.py
 ```
+
+`daily_update.ps1`用于当期行情与纸面调仓检查，不会重建机器学习所需的全历史因子表。
 
 默认只跑等权与Ridge：
 

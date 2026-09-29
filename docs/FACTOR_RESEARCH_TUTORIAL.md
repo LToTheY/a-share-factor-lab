@@ -30,7 +30,7 @@
 ```text
 BaoStock原始分区
     ↓ 下载、合并、审计
-data/processed/baostock_daily.parquet
+data/processed/market_daily.parquet
     ↓ 历史成分股与可交易过滤
 每日可研究股票池
     ↓ 每只股票沿时间轴计算原始因子
@@ -566,7 +566,7 @@ Turnover=\frac{\sum |TradeGross|/2}{AverageEquity}
 以下命令都在项目根目录执行：
 
 ```powershell
-cd C:\Users\lenovo\Desktop\水滴石穿\a-share-factor-lab
+cd <项目目录>
 ```
 
 ### 12.1 检查环境
@@ -599,7 +599,7 @@ cd C:\Users\lenovo\Desktop\水滴石穿\a-share-factor-lab
 这一步会读取：
 
 ```text
-data/processed/baostock_daily.parquet
+data/processed/market_daily.parquet
 ```
 
 并按 `configs/research.yaml` 重建：
@@ -614,13 +614,13 @@ reports/generated/daily_factor_lab/
 .\scripts\daily_update.ps1
 ```
 
-该入口会先更新和审计数据，再运行因子研究并生成纸面计划。仅修改因子公式或参数时，不必重新下载行情。
+该入口更新并核验最新行情，再生成当期排名和纸面计划，结果保存到`reports/generated/current_check/`。完整历史IC、回测与Walk-forward仍由`scripts/run_factor_suite.py`读取既有历史库运行；日常检查不会自动替换该历史库。仅修改因子公式或参数时，不必重新下载行情。
 
 ### 12.5 如何确认“复现成功”
 
 不要只看命令退出码。依次检查：
 
-1. `run_status.json`：流程是否成功、数据截止日是什么；
+1. `result_manifest.json`（历史研究）或 `data/state/current_check.json`（最新检查）：流程是否成功、数据截止日是什么；
 2. `effective_config.yaml`：本次实际使用的配置；
 3. `factor_coverage.csv`：是否出现大面积覆盖率失败；
 4. `factor_summary.csv`：单因子统计是否生成；

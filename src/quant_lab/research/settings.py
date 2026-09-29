@@ -45,6 +45,8 @@ class ResearchSettings:
     minimum_valid_factors: int = 1
     minimum_factor_coverage: float = 0.0
     validation: dict[str, Any] = field(default_factory=dict)
+    preferred_index: str = "000905.SH"
+    research_end_date: str | None = None
 
 
 def load_research_settings(path: str | Path) -> ResearchSettings:
@@ -105,4 +107,6 @@ def load_research_settings(path: str | Path) -> ResearchSettings:
         minimum_valid_factors=minimum_valid,
         minimum_factor_coverage=minimum_coverage,
         validation=dict(config.get("validation", {})),
+        preferred_index=str(universe.get("preferred_index", "000905.SH")),
+        research_end_date=str(data["research_end_date"]) if data.get("research_end_date") else None,
     )

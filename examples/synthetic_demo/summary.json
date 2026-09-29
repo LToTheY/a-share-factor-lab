@@ -1,0 +1,29 @@
+{
+  "synthetic": true,
+  "warning": "仅用于流程演示，不能代表真实收益",
+  "seed": 42,
+  "symbols": 30,
+  "generator": "quant_lab.research.service.create_demo",
+  "factors": [
+    "range_position_20"
+  ],
+  "universe": "CSI800",
+  "research_start_date": "2016-01-01",
+  "end_date": "2024-12-18",
+  "factor_count": 1,
+  "portfolio": {
+    "total_return": -0.12282969113483055,
+    "annual_return": -0.014026294675474893,
+    "annual_volatility": 0.19668508783728222,
+    "sharpe": 0.02655568815115353,
+    "max_drawdown": -0.6147765376326797,
+    "calmar": -0.022815273220227226,
+    "turnover": 7.074784732808564
+  },
+  "composite": {
+    "mean_ic": 0.0007128994478581937,
+    "ic_std": 0.19171097330192702,
+    "icir": 0.026399553066048798,
+    "win_rate": 0.511139674378749
+  }
+}

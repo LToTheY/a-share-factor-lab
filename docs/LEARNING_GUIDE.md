@@ -8,18 +8,15 @@
 .\scripts\daily_update.ps1
 ```
 
-打开：
+打开看板“今日调仓检查”，或读取`data/state/current_check.json`及其指向的本次
+`latest_signal.csv`、`next_day_orders.csv`。更新失败时没有新的可用建议。
 
-1. `reports/generated/daily_factor_lab/REPORT.md`
-2. `reports/generated/daily_factor_lab/run_status.json`
-3. `data/processed/baostock_daily_audit/audit.md`
-4. `reports/generated/daily_factor_lab/latest_signal.csv`
-5. `reports/generated/daily_factor_lab/next_day_orders.csv`
-
-第一次建立自2015年起的长历史库，2015年作为预热、2016年起正式评价；以后只补本地
-缺失日期。你需要先回答：这份结果使用了什么数据、哪一天形成信号、哪一天成交？还要
+日常入口只更新近期窗口和当期排名。完整历史研究保存在
+`reports/generated/daily_factor_lab/`，由`scripts/run_factor_suite.py`读取既有历史库生成。
+历史研究从2015年起预热、2016年起评价。你需要先回答：这份结果使用了什么数据、
+哪一天形成信号、计划哪一天成交？还要
 能解释历史成分股快照为什么比“用今天的500只股票回填十年”更可靠，以及周度快照仍有
-什么误差。合成数据只保留给自动测试，不是学习主入口。
+什么误差。无账号时可以先运行明确标注的合成演示，见 USER_GUIDE.md。
 
 ## 第1课：一行行情代表什么
 
@@ -53,7 +50,7 @@
 - `src/quant_lab/evaluation/preprocess.py`
 - `tests/test_preprocess.py`
 
-练习：比较关闭和开启行业/市值中性化后的年度RankIC。
+练习：在合成数据中比较关闭和开启行业/市值中性化后的年度RankIC。真实数据口径尚未验收，暂不启用。
 
 面试问题：中性化为什么可能同时降低收益和提高因子纯度？
 

@@ -1,3 +1,4 @@
+# Standalone BaoStock teaching example only. Active research uses research.yaml.
 data:
   source: baostock
   update_mode: incremental
@@ -9,8 +10,8 @@ data:
   frequency: d
   adjustflag: "1"  # 后复权；适合稳定追加，不会每日整体重写缓存
   universe: historical_zz500
-  raw_dir: data/raw/baostock_daily
-  processed_file: data/processed/baostock_daily.parquet
+  raw_dir: data/raw/baostock_example
+  processed_file: data/processed/baostock_zz500_daily.parquet
 
 universe:
   min_listed_days: 120
